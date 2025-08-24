@@ -1,0 +1,4 @@
+app_identifier("za.co.bitlogiq.bittracker")
+apple_id("roelofhorowitz@hotmail.com")
+itc_team_id("R4R4AW7JUQ") # App Store Connect Team ID
+team_id("R4R4AW7JUQ")     # Developer Team ID
