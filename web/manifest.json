@@ -1,6 +1,6 @@
 {
-    "name": "tracker",
-    "short_name": "tracker",
+    "name": "bittracker",
+    "short_name": "bittracker",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
