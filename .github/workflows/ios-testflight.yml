@@ -31,22 +31,21 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      # Ensure iOS platform + Podfile exist (safe if already present)
-      - name: Ensure iOS platform exists
-        run: flutter create . --platforms ios
+      # 🔧 Guarantee a fresh iOS folder WITH a Podfile
+      - name: Recreate iOS platform (ensures Podfile)
+        run: |
+          rm -rf ios
+          flutter create . --platforms ios
 
       - name: Precache iOS artifacts
         run: flutter precache --ios
 
-      # This triggers CocoaPods generation internally
+      # ⚙️ Warm build (generates Pods internally)
       - name: Warm iOS build (profile, no codesign)
         run: flutter build ios --profile --no-codesign
 
-      - name: Show iOS files (debug)
-        run: |
-          ls -la
-          ls -la ios || true
-          test -f ios/Podfile && echo "✅ Podfile found" || (echo "❌ Podfile missing"; exit 1)
+      - name: Confirm Podfile exists
+        run: test -f ios/Podfile && echo "✅ Podfile found"
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -56,7 +55,7 @@ jobs:
       - name: Install fastlane
         run: gem install fastlane
 
-      # Pull signing certs & provisioning profiles from your match repo
+      # 🔐 Pull signing certs & provisioning profiles from your match repo
       - name: Fastlane match (appstore)
         run: |
           export MATCH_GIT_BASIC_AUTHORIZATION="${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}"
@@ -68,13 +67,13 @@ jobs:
         env:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-      # Build signed IPA for App Store distribution
+      # 📦 Build signed IPA for App Store distribution
       - name: Build IPA (app-store)
         run: |
           /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM $TEAM_ID" ios/Runner.xcodeproj/project.pbxproj || true
           flutter build ipa --release --export-method app-store
 
-      # Write App Store Connect API key to file for pilot upload
+      # 🚀 Upload to TestFlight
       - name: Write API key to file
         run: echo "${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}" > ./AuthKey.p8
 
