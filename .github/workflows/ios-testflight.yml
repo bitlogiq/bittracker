@@ -1,0 +1,75 @@
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-upload:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Ensure iOS folder exists (idempotent)
+        run: flutter create .
+
+      - name: CocoaPods setup
+        working-directory: ios
+        run: |
+          sudo gem install cocoapods -N
+          pod repo update
+          pod install
+
+      - name: Install Fastlane
+        run: sudo gem install fastlane -N
+
+      - name: Prepare Keychain
+        run: |
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+
+      - name: Fastlane Beta
+        working-directory: ios
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }} # <-- using your secret
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          LC_ALL: en_US.UTF-8
+          LANG: en_US.UTF-8
+        run: fastlane beta
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build
+          path: |
+            ./build/ios/**/*.ipa
+            ./ios/fastlane/test_output/**
+            ./fastlane/report.xml
+            ./fastlane/README.md
