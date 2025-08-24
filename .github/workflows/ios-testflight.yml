@@ -17,6 +17,7 @@ jobs:
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -26,60 +27,29 @@ jobs:
           channel: stable
           flutter-version: 3.35.1
 
-      - name: Pub get
+      - name: Flutter pub get
         run: flutter pub get
+
+      # Ensure iOS platform + Podfile exist (idempotent; safe if they already do)
+      - name: Ensure iOS platform exists
+        run: flutter create . --platforms ios
 
       - name: Precache iOS artifacts
         run: flutter precache --ios
 
-      # Warm build ensures ios/Podfile and workspace are generated
-      - name: Warm iOS build
+      # Warm build triggers CocoaPods generation internally (no separate `pod install`)
+      - name: Warm iOS build (profile, no codesign)
         run: flutter build ios --profile --no-codesign
+
+      - name: Show iOS files (debug)
+        run: |
+          ls -la
+          ls -la ios || true
+          test -f ios/Podfile && echo "✅ Podfile found" || (echo "❌ Podfile missing"; exit 1)
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
 
-      - name: Install fastlane & cocoapods
-        run: |
-          gem install fastlane
-          gem install cocoapods
-          pod repo update
-        working-directory: ios
-
-      - name: CocoaPods install
-        run: pod install --repo-update
-        working-directory: ios
-
-      # Pull signing certs & provisioning profiles from your match repo
-      - name: Fastlane match (appstore)
-        run: |
-          export MATCH_GIT_BASIC_AUTHORIZATION="${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}"
-          fastlane match appstore --readonly true \
-            --git_url "$MATCH_GIT_URL" \
-            --app_identifier "$APP_IDENTIFIER" \
-            --team_id "$TEAM_ID" \
-            --username "$APPLE_ID"
-        env:
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-
-      # Build IPA with codesigning
-      - name: Build IPA (app-store)
-        run: |
-          /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM $TEAM_ID" ios/Runner.xcodeproj/project.pbxproj || true
-          flutter build ipa --release --export-method app-store
-
-      # Write App Store Connect API key to file
-      - name: Write API key to file
-        run: echo "${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}" > ./AuthKey.p8
-
-      # Upload IPA to TestFlight
-      - name: Upload to TestFlight
-        run: |
-          fastlane pilot upload \
-            --api_key_path ./AuthKey.p8 \
-            --api_key_id $ASC_KEY_ID \
-            --api_key_issuer_id $ASC_ISSUER_ID \
-            --ipa "build/ios/ipa/Runner.ipa" \
-            --skip_waiting_for_build_processing true
+      - name: Inst
