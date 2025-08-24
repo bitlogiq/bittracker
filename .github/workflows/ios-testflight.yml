@@ -31,52 +31,10 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      # Ensure fresh iOS folder (so we control its contents)
-      - name: Recreate iOS platform
-        run: |
-          rm -rf ios
-          flutter create . --platforms ios
-
-      # If Podfile didn't get created, write a standard Flutter Podfile
-      - name: Ensure Podfile exists (create if missing)
-        run: |
-          if [ ! -f ios/Podfile ]; then
-            cat > ios/Podfile <<'PODFILE'
-platform :ios, '12.0'
-
-# CocoaPods analytics sends network stats synchronously affecting build latency.
-ENV['COCOAPODS_DISABLE_STATS'] = 'true'
-
-project 'Runner', {
-  'Debug' => :debug,
-  'Profile' => :release,
-  'Release' => :release,
-}
-
-require File.expand_path(File.join('..', 'Flutter', 'podhelper'))
-
-flutter_ios_podfile_setup
-
-target 'Runner' do
-  use_frameworks!
-  use_modular_headers!
-  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-end
-
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-  end
-end
-PODFILE
-          fi
-          echo "✅ Podfile present:"
-          ls -la ios/Podfile
-
       - name: Precache iOS artifacts
         run: flutter precache --ios
 
-      # Warm build (generates Pods through Flutter tooling)
+      # Flutter will invoke CocoaPods automatically using your Podfile
       - name: Warm iOS build (profile, no codesign)
         run: flutter build ios --profile --no-codesign
 
@@ -88,7 +46,7 @@ PODFILE
       - name: Install fastlane
         run: gem install fastlane
 
-      # Pull signing certs & provisioning profiles (match)
+      # Pull signing certs & provisioning profiles from your match repo
       - name: Fastlane match (appstore)
         run: |
           export MATCH_GIT_BASIC_AUTHORIZATION="${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}"
@@ -100,7 +58,7 @@ PODFILE
         env:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-      # Build signed IPA
+      # Build signed IPA for App Store distribution
       - name: Build IPA (app-store)
         run: |
           /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM $TEAM_ID" ios/Runner.xcodeproj/project.pbxproj || true
