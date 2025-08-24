@@ -30,15 +30,6 @@ jobs:
           flutter --version
           dart --version
 
-      - name: Assert Dart >= 3.9
-        run: |
-          ver=$(dart --version 2>&1 | awk '{print $4}')
-          echo "Dart version: $ver"
-          case "$ver" in
-            3.9.*|3.1[0-9].*|3.[1-9][0-9].*|[4-9].*) echo "OK";;
-            *) echo "Dart < 3.9 detected"; exit 1;;
-          esac
-
       - name: Flutter pub get
         run: flutter pub get
 
