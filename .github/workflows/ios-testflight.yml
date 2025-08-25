@@ -106,6 +106,12 @@ jobs:
           set -e
           flutter build ios --release --no-codesign
 
+      # Useful to see if there are extra targets with their own bundle IDs
+      - name: Inspect bundle identifiers
+        run: |
+          echo "Bundle IDs found in project:"
+          grep -R "PRODUCT_BUNDLE_IDENTIFIER" -n ios/Runner.xcodeproj/project.pbxproj | sed 's/.*= "\(.*\)";/\1/' | sort -u || true
+
       # ---------- Rehydrate API key from base64 and verify EC curve ----------
       - name: Create App Store Connect API key file from base64 (and verify)
         shell: bash
@@ -159,6 +165,15 @@ jobs:
             keychain_name:"$MATCH_KEYCHAIN_NAME" \
             keychain_password:"$MATCH_KEYCHAIN_PASSWORD"
 
+      # ---------- Force Automatic signing on all targets ----------
+      - name: Switch Xcode project to Automatic signing (all targets)
+        run: |
+          fastlane run update_code_signing_settings \
+            use_automatic_signing:true \
+            team_id:"${APPLE_TEAM_ID}" \
+            path:"ios/Runner.xcodeproj"
+
+      # ---------- Build IPA (allow provisioning updates) ----------
       - name: Build IPA
         run: |
           set -e
@@ -170,10 +185,37 @@ jobs:
             include_bitcode:false \
             output_directory:"ios/build" \
             output_name:"BitTracker.ipa" \
-            xcargs:"DEVELOPMENT_TEAM=${APPLE_TEAM_ID} PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID}"
+            allow_provisioning_updates:true \
+            xcargs:"DEVELOPMENT_TEAM=${APPLE_TEAM_ID} PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} CODE_SIGN_STYLE=Automatic"
           ls -lah ios/build
 
+      # If build fails, print the end of the gym log to console
+      - name: Tail gym log on failure
+        if: failure()
+        run: |
+          echo "---- Tail of gym log (if present) ----"
+          LOG_DIR="$HOME/Library/Logs/gym"
+          if [ -d "$LOG_DIR" ]; then
+            LOG_FILE=$(ls -1t "$LOG_DIR" | head -n1)
+            if [ -n "$LOG_FILE" ] && [ -f "$LOG_DIR/$LOG_FILE" ]; then
+              tail -n 200 "$LOG_DIR/$LOG_FILE" || true
+            fi
+          fi
+
+      # Always keep logs/DerivedData/ipa artifacts for debugging
+      - name: Upload logs and DerivedData
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-and-gym-logs
+          path: |
+            $HOME/Library/Logs/gym
+            ~/Library/Developer/Xcode/DerivedData
+            ios/build
+          if-no-files-found: ignore
+
       - name: Upload to TestFlight
+        if: success()
         run: |
           set -e
           fastlane run upload_to_testflight \
@@ -181,11 +223,3 @@ jobs:
             skip_waiting_for_build_processing:true \
             distribute_external:false
           echo "✅ Upload to TestFlight initiated"
-
-      - name: Keep artifacts (IPA)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-ipa
-          path: ios/build/*.ipa
-          if-no-files-found: warn
