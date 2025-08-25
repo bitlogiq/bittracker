@@ -18,10 +18,17 @@ jobs:
       FLUTTER_VERSION: '3.35.1'
       IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # App Store Connect (keep existing KEY_ID and ISSUER_ID)
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      # IMPORTANT: base64-encoded contents of your .p8 key file
+      # Provide ONE of the following (the step below accepts any):
+      #   ASC_PRIVATE_KEY_B64  (base64 of the raw .p8)
+      #   APP_STORE_CONNECT_PRIVATE_KEY (raw multiline .p8 content)
+      #   APP_STORE_CONNECT_PRIVATE_KEY_JSON (full JSON string)
       ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
+      APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      APP_STORE_CONNECT_PRIVATE_KEY_JSON: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_JSON }}
+      # fastlane match
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
@@ -30,7 +37,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---- Flutter toolchain ----
+      # ---- Flutter toolchain first ----
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -38,7 +45,7 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Precache iOS & pub get
+      - name: Precache iOS & fetch packages
         run: |
           set -e
           flutter precache --ios
@@ -47,19 +54,23 @@ jobs:
       - name: Export FLUTTER_ROOT
         shell: bash
         run: |
+          set -e
           FLUTTER_BIN="$(which flutter)"
           FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
           echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
+          echo "✅ FLUTTER_ROOT=$FLUTTER_ROOT"
 
+      # If Generated.xcconfig was committed from Windows, regenerate it for macOS
       - name: Normalize Generated.xcconfig (Windows path guard)
         run: |
           set -e
           if [ -f ios/Flutter/Generated.xcconfig ] && grep -qi '^FLUTTER_ROOT=c:' ios/Flutter/Generated.xcconfig; then
-            echo "Windows path detected; regenerating..."
+            echo "Windows path detected in Generated.xcconfig; regenerating..."
             rm -f ios/Flutter/Generated.xcconfig
             flutter pub get
           fi
-          test -f ios/Flutter/Generated.xcconfig || (echo "Generated.xcconfig missing" && exit 1)
+          test -f ios/Flutter/Generated.xcconfig || (echo "Generated.xcconfig missing after regen" && exit 1)
+          echo "✅ ios/Flutter/Generated.xcconfig OK"
 
       # ---- Ruby / Pods / Fastlane ----
       - name: Install Ruby
@@ -76,6 +87,16 @@ jobs:
           pod --version
           fastlane --version
 
+      # (Optional) Cache Pods by lockfile hash
+      - name: Cache Pods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      # ---- Clean & install Pods in correct order ----
       - name: Reset Pods
         run: rm -rf ios/Pods ios/Podfile.lock
 
@@ -93,40 +114,68 @@ jobs:
           set -e
           flutter build ios --release --no-codesign
 
-      # ---- Rehydrate the .p8 and build a valid AuthKey.json for Fastlane ----
-      - name: Create App Store Connect API key file from base64
+      # ---- Create App Store Connect API key file (robust: B64, RAW .p8, or JSON) ----
+      - name: Create App Store Connect API key file (robust)
         shell: bash
+        env:
+          ASC_PRIVATE_KEY_B64: ${{ env.ASC_PRIVATE_KEY_B64 }}
+          ASC_PRIVATE_KEY_RAW: ${{ env.APP_STORE_CONNECT_PRIVATE_KEY }}
+          ASC_PRIVATE_KEY_JSON: ${{ env.APP_STORE_CONNECT_PRIVATE_KEY_JSON }}
+          ASC_KEY_ID: ${{ env.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ env.ASC_ISSUER_ID }}
         run: |
           set -e
-          if [ -z "${ASC_PRIVATE_KEY_B64}" ]; then
-            echo "ASC_PRIVATE_KEY_B64 secret is missing"; exit 1
-          fi
-          # Decode to raw .p8, strip any CRLFs just in case
-          echo "${ASC_PRIVATE_KEY_B64}" | base64 -d | tr -d '\r' > AuthKey.p8
+          python3 - << 'PY'
+          import os, sys, base64, json
 
-          # Optional: verify key curve is prime256v1 / secp256r1 (ES256)
-          if command -v openssl >/dev/null 2>&1; then
-            if ! openssl pkey -in AuthKey.p8 -noout -text 2>/dev/null | grep -qiE 'prime256v1|secp256r1'; then
-              echo "::warning ::Could not verify EC curve as P-256; ensure this is the Apple ASC .p8 key (ES256)."
-            fi
-          fi
+          b64 = (os.environ.get("ASC_PRIVATE_KEY_B64") or "").strip()
+          raw = (os.environ.get("ASC_PRIVATE_KEY_RAW") or "").strip()
+          jsv = (os.environ.get("ASC_PRIVATE_KEY_JSON") or "").strip()
+          key_id = os.environ["ASC_KEY_ID"].strip()
+          issuer = os.environ["ASC_ISSUER_ID"].strip()
 
-          # Escape into JSON string with literal \n line breaks, escape any quotes
-          KEY_ESCAPED=$(awk '{gsub(/"/, "\\\""); printf "%s\\n", $0 }' AuthKey.p8)
+          # If JSON provided, write directly
+          if jsv:
+            try:
+              obj = json.loads(jsv)
+              open("AuthKey.json","w").write(json.dumps(obj))
+              print("✅ AuthKey.json written from JSON secret")
+              sys.exit(0)
+            except Exception as e:
+              print("Provided APP_STORE_CONNECT_PRIVATE_KEY_JSON is not valid JSON:", e, file=sys.stderr)
+              sys.exit(1)
 
-          cat > AuthKey.json <<JSON
-          {
-            "key_id": "${ASC_KEY_ID}",
-            "issuer_id": "${ASC_ISSUER_ID}",
-            "key": "${KEY_ESCAPED}",
+          key_bytes = b""
+          if b64:
+            try:
+              key_bytes = base64.b64decode(b64)
+            except Exception as e:
+              print("Failed to decode ASC_PRIVATE_KEY_B64:", e, file=sys.stderr)
+              sys.exit(1)
+          elif raw:
+            key_bytes = raw.replace("\r\n", "\n").encode("utf-8")
+          else:
+            print("No ASC_PRIVATE_KEY_B64, APP_STORE_CONNECT_PRIVATE_KEY, or APP_STORE_CONNECT_PRIVATE_KEY_JSON provided.", file=sys.stderr)
+            sys.exit(1)
+
+          # Persist .p8 (optional; useful for debugging locally)
+          open("AuthKey.p8","wb").write(key_bytes)
+          txt = key_bytes.decode("utf-8", "replace")
+
+          # Escape into JSON (keep literal \n)
+          key_escaped = txt.replace("\\", "\\\\").replace('"','\\"').replace("\n", "\\n")
+          obj = {
+            "key_id": key_id,
+            "issuer_id": issuer,
+            "key": key_escaped,
             "duration": 1200,
-            "in_house": false
+            "in_house": False
           }
-          JSON
+          open("AuthKey.json", "w").write(json.dumps(obj))
+          print("✅ AuthKey.json created from .p8")
+          PY
 
-          echo "✅ AuthKey.json created"
-
-      # ---- Keychain + match (FIRST run creates certs/profiles; set readonly:true later) ----
+      # ---- Keychain + match (FIRST run creates certs/profiles; later set readonly:true) ----
       - name: Set up keychain & fetch signing with match
         env:
           MATCH_KEYCHAIN_NAME: build.keychain
@@ -144,7 +193,7 @@ jobs:
             export MATCH_GIT_BASIC_AUTHORIZATION="${MATCH_GIT_BASIC_AUTHORIZATION}"
           fi
 
-          # FIRST SUCCESSFUL RUN ONLY: allow creation (readonly:false)
+          # FIRST success only: allow creation (readonly:false)
           fastlane run match \
             type:"appstore" \
             app_identifier:"${IOS_BUNDLE_ID}" \
