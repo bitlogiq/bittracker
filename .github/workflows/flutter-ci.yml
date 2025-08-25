@@ -9,7 +9,7 @@ on:
 
 env:
   # 👇 Change this to "." if pubspec.yaml is at repo root,
-  # or to the single folder that contains your Flutter app.
+  # or to the single folder name if your Flutter app lives in a subdirectory.
   APP_DIR: "."
 
 jobs:
@@ -47,9 +47,7 @@ jobs:
         run: flutter pub get
         working-directory: ${{ env.APP_DIR }}
 
-      # Export FLUTTER_ROOT so the Podfile can find Flutter (your Podfile patch also handles this, but this helps too)
       - name: Export FLUTTER_ROOT
-        # The flutter binary typically lives at $FLUTTER_ROOT/bin/flutter
         run: echo "FLUTTER_ROOT=$(dirname $(dirname $(which flutter)))" >> $GITHUB_ENV
 
   build_android_web:
@@ -112,13 +110,16 @@ jobs:
           flutter pub get
         working-directory: ${{ env.APP_DIR }}
 
-      # Re‑export FLUTTER_ROOT in this job as well (each job has its own env)
-      - name: Export FLUTTER_ROOT
-        run: echo "FLUTTER_ROOT=$(dirname $(dirname $(which flutter)))" >> $GITHUB_ENV
+      # Export FLUTTER_ROOT and PATH for CocoaPods
+      - name: Export FLUTTER_ROOT and PATH
+        run: |
+          echo "FLUTTER_ROOT=$(dirname $(dirname $(which flutter)))" >> $GITHUB_ENV
+          echo "$(dirname $(which flutter))" >> $GITHUB_PATH
 
-      - name: Sanity: show iOS Flutter files
+      - name: Sanity before pods
         run: |
           echo "FLUTTER_ROOT=$FLUTTER_ROOT"
+          which flutter || true
           ls -la ios/Flutter || true
           test -f ios/Flutter/Generated.xcconfig && echo "Generated.xcconfig present ✅" || echo "Generated.xcconfig missing ❌"
         working-directory: ${{ env.APP_DIR }}
@@ -130,7 +131,9 @@ jobs:
         working-directory: ${{ env.APP_DIR }}/ios
 
       - name: Pod install
-        run: pod install --repo-update
+        run: |
+          export PATH="$FLUTTER_ROOT/bin:$PATH"
+          pod install --repo-update
         working-directory: ${{ env.APP_DIR }}/ios
 
       - name: Build iOS (no codesign)
