@@ -1,46 +1,57 @@
-name: Seed iOS Certs (one-off)
+name: iOS TestFlight
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  seed:
+  build-and-upload:
     runs-on: macos-14
     env:
+      # App / Apple
       APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
       TEAM_ID: ${{ secrets.TEAM_ID }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
+
+      # ASC API key
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+
+      # match (cert repo)
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
       MATCH_GIT_BRANCH: main
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
-      MATCH_READONLY: "false"
-      FASTLANE_MATCH_READONLY: "false"
 
     steps:
-      - name: Checkout cert repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Ruby + fastlane
-        uses: ruby/setup-ruby@v1
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
         with:
-          ruby-version: '3.2'
-      - run: gem install fastlane
+          channel: stable
+          flutter-version: 3.35.1
 
-      - name: Create local fastlane/Matchfile (readonly false)
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Precache iOS artifacts
+        run: flutter precache --ios
+
+      - name: Warm iOS build (profile, no codesign)
+        run: flutter build ios --profile --no-codesign
+
+      - name: Create CI keychain
         run: |
-          mkdir -p fastlane
-          cat > fastlane/Matchfile <<'RUBY'
-          storage_mode("git")
-          type("appstore")
-          readonly(false)
-          RUBY
-          cat fastlane/Matchfile
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
 
-      - name: Write ASC API key JSON
+      - name: Write ASC API key (JSON) for fastlane
         run: |
           cat > AuthKey.json <<'JSON'
           {
@@ -52,12 +63,11 @@ jobs:
           }
           JSON
 
-      - name: Run fastlane match to CREATE certs/profiles (read-write)
+      # Use certs/profiles from the cert repo (readonly since we've seeded them)
+      - name: Fastlane match (appstore, readonly)
         run: |
-          echo "Using $MATCH_GIT_URL on branch $MATCH_GIT_BRANCH"
           fastlane match appstore \
-            --verbose \
-            --readonly false \
+            --readonly true \
             --git_url "$MATCH_GIT_URL" \
             --git_branch "$MATCH_GIT_BRANCH" \
             --git_basic_authorization "$MATCH_GIT_BASIC_AUTHORIZATION" \
@@ -65,3 +75,29 @@ jobs:
             --team_id "$TEAM_ID" \
             --username "$APPLE_ID" \
             --api_key_path ./AuthKey.json
+        env:
+          MATCH_GIT_URL: ${{ env.MATCH_GIT_URL }}
+          MATCH_GIT_BRANCH: ${{ env.MATCH_GIT_BRANCH }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ env.MATCH_GIT_BASIC_AUTHORIZATION }}
+          MATCH_PASSWORD: ${{ env.MATCH_PASSWORD }}
+          APP_IDENTIFIER: ${{ env.APP_IDENTIFIER }}
+          TEAM_ID: ${{ env.TEAM_ID }}
+          APPLE_ID: ${{ env.APPLE_ID }}
+
+      - name: Build IPA (app-store)
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM $TEAM_ID" ios/Runner.xcodeproj/project.pbxproj || true
+          flutter build ipa --release --export-method app-store
+
+      - name: Write API key (.p8) to file
+        run: echo "${ASC_PRIVATE_KEY}" > ./AuthKey.p8
+
+      - name: Upload to TestFlight
+        run: |
+          gem install fastlane
+          fastlane pilot upload \
+            --api_key_path ./AuthKey.p8 \
+            --api_key_id $ASC_KEY_ID \
+            --api_key_issuer_id $ASC_ISSUER_ID \
+            --ipa "build/ios/ipa/Runner.ipa" \
+            --skip_waiting_for_build_processing true
