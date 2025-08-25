@@ -1,10 +1,13 @@
-name: Seed iOS Certs (one-off)
+name: iOS TestFlight Build
 
 on:
-  workflow_dispatch: # manual trigger only
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  seed:
+  build:
     runs-on: macos-14
     env:
       APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
@@ -15,9 +18,10 @@ jobs:
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
       MATCH_GIT_BRANCH: main
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
 
     steps:
-      - name: Checkout cert repo
+      - name: Checkout app repo
         uses: actions/checkout@v4
 
       - name: Set up Ruby
@@ -25,25 +29,24 @@ jobs:
         with:
           ruby-version: '3.2'
 
-      - name: Install fastlane
-        run: gem install fastlane
-
-      - name: Guard: ensure auth secret is present
+      - name: Install dependencies
         run: |
-          if [ -z "${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}" ]; then
-            echo "❌ Missing secret MATCH_GIT_BASIC_AUTHORIZATION in ios-cert-store repo"; exit 1
-          fi
-          echo "✅ MATCH_GIT_BASIC_AUTHORIZATION detected"
+          gem install fastlane
+          brew install cocoapods
+          pod install --project-directory=ios
 
-      - name: Run fastlane match to generate and store certs (read-write)
+      - name: Sync certs and profiles
         run: |
           fastlane match appstore \
-            --readonly false \
+            --readonly true \
             --git_url "$MATCH_GIT_URL" \
             --git_branch "$MATCH_GIT_BRANCH" \
             --git_basic_authorization "${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}" \
             --app_identifier "$APP_IDENTIFIER" \
             --team_id "$TEAM_ID" \
             --username "$APPLE_ID"
-        env:
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+
+      - name: Build and upload to TestFlight
+        run: |
+          cd ios
+          bundle exec fastlane ios beta
