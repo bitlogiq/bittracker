@@ -9,18 +9,29 @@ project 'Runner', {
   'Release' => :release,
 }
 
+# Helper to resolve Flutter root correctly on macOS runners
 def flutter_root
-  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-  unless File.exist?(generated_xcode_build_settings_path)
+  # 1. Prefer env var from workflow
+  env_root = ENV['FLUTTER_ROOT']
+  if env_root && !env_root.empty?
+    return env_root.gsub('\\','/') # normalize Windows backslashes
+  end
+
+  # 2. Fallback: read from Generated.xcconfig
+  generated = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated)
     raise "Generated.xcconfig must exist. Run 'flutter pub get' first."
   end
-  File.foreach(generated_xcode_build_settings_path) do |line|
-    matches = line.match(/FLUTTER_ROOT\=(.*)/)
-    return matches[1].strip if matches
+
+  File.foreach(generated) do |line|
+    m = line.match(/FLUTTER_ROOT\=(.*)/)
+    return m[1].strip.gsub('\\','/') if m
   end
-  raise "FLUTTER_ROOT not found in Generated.xcconfig. Run 'flutter pub get' first."
+
+  raise "FLUTTER_ROOT not found in Generated.xcconfig."
 end
 
+# Require Flutter's CocoaPods helper
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
 flutter_ios_podfile_setup
@@ -31,7 +42,7 @@ target 'Runner' do
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
-  # Ensure all pods use at least the same deployment target
+  # Ensure all pods share the same minimum deployment target
   post_install do |installer|
     installer.pods_project.targets.each do |t|
       t.build_configurations.each do |bc|
