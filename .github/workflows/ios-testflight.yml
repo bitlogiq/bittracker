@@ -32,7 +32,6 @@ jobs:
 
       - name: Debug • Repo state
         run: |
-          echo "✅ Repo checked out"
           echo "PWD=$(pwd)"
           ls -la
           test -f pubspec.yaml || (echo "pubspec.yaml missing" && exit 1)
@@ -45,16 +44,38 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Debug • Flutter toolchain
+      - name: Debug • Flutter
         run: |
           flutter --version
           which flutter
 
-      - name: Precache iOS and fetch packages
+      - name: Precache iOS & fetch packages
         run: |
           set -e
           flutter precache --ios
           flutter pub get
+
+      # Ensure FLUTTER_ROOT is exported (helps Podfile fallback logic)
+      - name: Export FLUTTER_ROOT
+        shell: bash
+        run: |
+          set -e
+          FLUTTER_BIN="$(which flutter)"
+          FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
+          echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
+          echo "✅ FLUTTER_ROOT=$FLUTTER_ROOT"
+
+      # If Generated.xcconfig was committed from Windows, regenerate it for macOS
+      - name: Normalize Generated.xcconfig (Windows path guard)
+        run: |
+          set -e
+          if [ -f ios/Flutter/Generated.xcconfig ] && grep -qi '^FLUTTER_ROOT=c:' ios/Flutter/Generated.xcconfig; then
+            echo "Windows path detected in Generated.xcconfig; regenerating..."
+            rm -f ios/Flutter/Generated.xcconfig
+            flutter pub get
+          fi
+          test -f ios/Flutter/Generated.xcconfig || (echo "Generated.xcconfig missing after regen" && exit 1)
+          echo "✅ ios/Flutter/Generated.xcconfig OK"
 
       # (Optional) Cache Pods by lockfile hash
       - name: Cache Pods
@@ -72,7 +93,7 @@ jobs:
           ruby-version: '3.2'
           bundler-cache: false
 
-      - name: Install gems
+      - name: Install gems (cocoapods + fastlane)
         run: |
           set -e
           gem install --no-document cocoapods -v "~> 1.15"
@@ -80,20 +101,9 @@ jobs:
           pod --version
           fastlane --version
 
-      # ---- Ensure FLUTTER_ROOT is exported for pod helper (usually automatic) ----
-      - name: Export FLUTTER_ROOT for CocoaPods
-        shell: bash
-        run: |
-          set -e
-          FLUTTER_BIN="$(which flutter)"
-          FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
-          echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
-          echo "✅ FLUTTER_ROOT exported: $FLUTTER_ROOT"
-
-      # ---- Reset & reinstall Pods (prevents stale locks / targets) ----
+      # ---- Clean & install Pods in correct order ----
       - name: Reset Pods
-        run: |
-          rm -rf ios/Pods ios/Podfile.lock
+        run: rm -rf ios/Pods ios/Podfile.lock
 
       - name: Pod repo update & install
         working-directory: ios
@@ -103,13 +113,13 @@ jobs:
           pod install
           echo "✅ pod install complete"
 
-      # ---- Optional early sanity build (no signing) to catch Pod/Swift issues ----
+      # ---- Early sanity build (no signing) to catch Pod/Swift issues ----
       - name: Build iOS (no codesign)
         run: |
           set -e
           flutter build ios --release --no-codesign
 
-      # ---- Create App Store Connect API key file for fastlane ----
+      # ---- App Store Connect API key for fastlane ----
       - name: Create App Store Connect API key file
         shell: bash
         run: |
@@ -125,8 +135,8 @@ jobs:
           JSON
           echo "✅ AuthKey.json created"
 
-      # ---- Set up signing with match (certs & profiles) ----
-      - name: Set up keychain & fetch signing (match)
+      # ---- Keychain + match (FIRST RUN: readonly:false to create certs/profiles) ----
+      - name: Set up keychain & fetch signing with match
         env:
           MATCH_KEYCHAIN_NAME: build.keychain
           MATCH_KEYCHAIN_PASSWORD: temp_password_123
@@ -139,16 +149,18 @@ jobs:
             unlock:true \
             timeout:3600
 
-          # If your match repo requires Basic Auth, pass MATCH_GIT_BASIC_AUTHORIZATION
+          # If your match repo requires Basic Auth, env is already set
           if [ -n "${MATCH_GIT_BASIC_AUTHORIZATION}" ]; then
             export MATCH_GIT_BASIC_AUTHORIZATION="${MATCH_GIT_BASIC_AUTHORIZATION}"
           fi
 
+          # FIRST SUCCESSFUL RUN ONLY: allow creation (readonly:false)
           fastlane run match \
             type:"appstore" \
             app_identifier:"${IOS_BUNDLE_ID}" \
             git_url:"${MATCH_GIT_URL}" \
-            readonly:true \
+            readonly:false \
+            api_key_path:"AuthKey.json" \
             keychain_name:"$MATCH_KEYCHAIN_NAME" \
             keychain_password:"$MATCH_KEYCHAIN_PASSWORD"
 
@@ -186,6 +198,6 @@ jobs:
           path: ios/build/*.ipa
           if-no-files-found: warn
 
-      - name: Debug • Finished
+      - name: Done
         if: always()
         run: echo "🏁 Workflow finished."
