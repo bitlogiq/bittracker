@@ -1,24 +1,18 @@
-platform :ios, '12.0'
+# ios/Podfile
 
-# CocoaPods analytics can slow down source installs.
+platform :ios, '13.0'
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
-project 'Runner', {
-  'Debug' => :debug,
-  'Profile' => :release,
-  'Release' => :release,
-}
-
-# Pull in Flutter's CocoaPods helpers
-require File.expand_path(File.join('..', 'Flutter', 'podhelper'))
+# Pull in Flutter's CocoaPods helpers (resolve relative to this Podfile)
+require File.expand_path(File.join('Flutter', 'podhelper'), __dir__)
 
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  use_frameworks!
+  # If you need Swift frameworks, keep these. (Static linking prevents conflicts with Firebase, etc.)
+  use_frameworks! :linkage => :static
   use_modular_headers!
 
-  # Install all pods required by your Flutter plugins and app
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
