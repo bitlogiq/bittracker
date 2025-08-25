@@ -1,0 +1,126 @@
+name: Flutter CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  # 👇 Change this to "." if pubspec.yaml is at the repo root,
+  # or to the *single* folder name if your app lives in a subfolder.
+  APP_DIR: "."
+
+jobs:
+  # ---------- Quick sanity checks & pub get on macOS (so iOS can run later)
+  pub_get:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Print working dir & tree
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          pwd
+          ls -la
+          echo "---- APP_DIR ----"
+          cd "${{ env.APP_DIR }}"
+          pwd
+          ls -la
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+        working-directory: ${{ env.APP_DIR }}
+
+      - name: Pub get
+        run: flutter pub get
+        working-directory: ${{ env.APP_DIR }}
+
+  # ---------- Android & Web builds on Ubuntu (fast, no Apple deps)
+  build_android_web:
+    needs: pub_get
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+        working-directory: ${{ env.APP_DIR }}
+
+      - name: Build Android APK (debug)
+        run: flutter build apk --debug
+        working-directory: ${{ env.APP_DIR }}
+
+      - name: Build Web (release)
+        run: flutter build web --release
+        working-directory: ${{ env.APP_DIR }}
+
+      - name: Upload Web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: ${{ env.APP_DIR }}/build/web
+
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-debug.apk
+
+  # ---------- iOS build on macOS (no codesign; produces .app/.xcarchive if needed)
+  build_ios:
+    needs: pub_get
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Pub get
+        run: flutter pub get
+        working-directory: ${{ env.APP_DIR }}
+
+      - name: Install CocoaPods
+        run: |
+          sudo gem install cocoapods
+          pod --version
+        working-directory: ${{ env.APP_DIR }}/ios
+
+      - name: Pod install
+        run: pod install --repo-update
+        working-directory: ${{ env.APP_DIR }}/ios
+
+      - name: Build iOS (no codesign)
+        run: flutter build ios --no-codesign
+        working-directory: ${{ env.APP_DIR }}
+
+      - name: Upload iOS build products
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build
+          path: |
+            ${{ env.APP_DIR }}/build/ios/iphoneos
+            ${{ env.APP_DIR }}/build/ios/archive
