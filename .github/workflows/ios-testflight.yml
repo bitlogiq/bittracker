@@ -137,8 +137,8 @@ jobs:
           JSON
           echo "✅ AuthKey.json ready"
 
-      # ---------- Signing (FIRST RUN: readonly:false to create certs/profiles) ----------
-      - name: Set up keychain & fetch signing with match
+      # ---------- Signing: create/fetch certs+profiles with match ----------
+      - name: Set up keychain & fetch signing with match (App Store)
         env:
           MATCH_KEYCHAIN_NAME: build.keychain
           MATCH_KEYCHAIN_PASSWORD: temp_password_123
@@ -155,6 +155,7 @@ jobs:
             export MATCH_GIT_BASIC_AUTHORIZATION="${MATCH_GIT_BASIC_AUTHORIZATION}"
           fi
 
+          # FIRST run: allow creating the cert/profile in your match repo
           fastlane run match \
             type:"appstore" \
             app_identifier:"${IOS_BUNDLE_ID}" \
@@ -164,18 +165,64 @@ jobs:
             keychain_name:"$MATCH_KEYCHAIN_NAME" \
             keychain_password:"$MATCH_KEYCHAIN_PASSWORD"
 
-      # ---------- Force Automatic signing on all targets ----------
-      - name: Switch Xcode project to Automatic signing (all targets)
-        run: |
-          fastlane run update_code_signing_settings \
-            use_automatic_signing:true \
-            team_id:"${APPLE_TEAM_ID}" \
-            path:"ios/Runner.xcodeproj"
-
-      # ---------- Build IPA (use xcodebuild flags via xcargs/export_xcargs) ----------
-      - name: Build IPA
+      # ---------- Apply MANUAL signing to Xcode project using match profile ----------
+      - name: Apply manual code signing (Runner target)
+        shell: bash
         run: |
           set -e
+          # env vars created by match. For appstore:
+          #   sigh_<bundle>_appstore_profile-name  (profile name / specifier)
+          #   sigh_<bundle>_appstore                (UUID)
+          # Transform bundle id into env-safe key
+          BUNDLE="${IOS_BUNDLE_ID}"
+          SAFE_BUNDLE="${BUNDLE//./_}"  # za_co_bitlogiq_bittracker
+          # shellcheck disable=SC2086
+          PROFILE_NAME_VAR="sigh_${SAFE_BUNDLE}_appstore_profile-name"
+          PROFILE_UUID_VAR="sigh_${SAFE_BUNDLE}_appstore"
+
+          PROFILE_NAME="${!PROFILE_NAME_VAR}"
+          PROFILE_UUID="${!PROFILE_UUID_VAR}"
+
+          if [ -z "$PROFILE_NAME" ] || [ -z "$PROFILE_UUID" ]; then
+            echo "::error ::Could not read profile env vars from match for ${IOS_BUNDLE_ID}"
+            env | grep -i "sigh_" || true
+            exit 1
+          fi
+
+          echo "Using profile:"
+          echo "  Name/Specifier: $PROFILE_NAME"
+          echo "  UUID: $PROFILE_UUID"
+
+          # Set MANUAL signing on project for the main app target
+          fastlane run update_code_signing_settings \
+            use_automatic_signing:false \
+            team_id:"${APPLE_TEAM_ID}" \
+            code_sign_identity:"Apple Distribution" \
+            bundle_identifier:"${IOS_BUNDLE_ID}" \
+            profile_name:"${PROFILE_NAME}" \
+            path:"ios/Runner.xcodeproj"
+
+          # Save for next step
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+
+      # ---------- Build IPA with explicit profile (no Apple account needed) ----------
+      - name: Build IPA (manual signing)
+        shell: bash
+        run: |
+          set -e
+          # Export options mapping for correct profile during export
+          EXPORT_JSON=$(cat <<EOF
+          {
+            "method": "app-store",
+            "provisioningProfiles": {
+              "${IOS_BUNDLE_ID}": "${PROFILE_NAME}"
+            }
+          }
+          EOF
+          )
+          echo "$EXPORT_JSON" > exportOptions.plist
+
           fastlane run build_app \
             scheme:"Runner" \
             workspace:"ios/Runner.xcworkspace" \
@@ -184,8 +231,10 @@ jobs:
             include_bitcode:false \
             output_directory:"ios/build" \
             output_name:"BitTracker.ipa" \
-            xcargs:"-allowProvisioningUpdates DEVELOPMENT_TEAM=${APPLE_TEAM_ID} PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} CODE_SIGN_STYLE=Automatic" \
-            export_xcargs:"-allowProvisioningUpdates"
+            codesigning_identity:"Apple Distribution" \
+            xcargs:"PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=${PROFILE_NAME}" \
+            export_options:"exportOptions.plist"
+
           ls -lah ios/build
 
       # If build fails, print the end of the gym log to console
