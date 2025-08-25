@@ -8,12 +8,11 @@ on:
   workflow_dispatch:
 
 env:
-  # 👇 Change this to "." if pubspec.yaml is at the repo root,
-  # or to the *single* folder name if your app lives in a subfolder.
+  # 👇 Change this to "." if pubspec.yaml is at repo root,
+  # or to the single folder that contains your Flutter app.
   APP_DIR: "."
 
 jobs:
-  # ---------- Quick sanity checks & pub get on macOS (so iOS can run later)
   pub_get:
     runs-on: macos-latest
     steps:
@@ -40,11 +39,19 @@ jobs:
         run: flutter doctor -v
         working-directory: ${{ env.APP_DIR }}
 
+      - name: Flutter precache (iOS)
+        run: flutter precache --ios
+        working-directory: ${{ env.APP_DIR }}
+
       - name: Pub get
         run: flutter pub get
         working-directory: ${{ env.APP_DIR }}
 
-  # ---------- Android & Web builds on Ubuntu (fast, no Apple deps)
+      # Export FLUTTER_ROOT so the Podfile can find Flutter (your Podfile patch also handles this, but this helps too)
+      - name: Export FLUTTER_ROOT
+        # The flutter binary typically lives at $FLUTTER_ROOT/bin/flutter
+        run: echo "FLUTTER_ROOT=$(dirname $(dirname $(which flutter)))" >> $GITHUB_ENV
+
   build_android_web:
     needs: pub_get
     runs-on: ubuntu-latest
@@ -82,7 +89,6 @@ jobs:
           name: app-debug-apk
           path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-debug.apk
 
-  # ---------- iOS build on macOS (no codesign; produces .app/.xcarchive if needed)
   build_ios:
     needs: pub_get
     runs-on: macos-latest
@@ -96,11 +102,25 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Xcode version
-        run: xcodebuild -version
+      - name: Flutter doctor
+        run: flutter doctor -v
+        working-directory: ${{ env.APP_DIR }}
 
-      - name: Pub get
-        run: flutter pub get
+      - name: Ensure Flutter iOS bits exist
+        run: |
+          flutter precache --ios
+          flutter pub get
+        working-directory: ${{ env.APP_DIR }}
+
+      # Re‑export FLUTTER_ROOT in this job as well (each job has its own env)
+      - name: Export FLUTTER_ROOT
+        run: echo "FLUTTER_ROOT=$(dirname $(dirname $(which flutter)))" >> $GITHUB_ENV
+
+      - name: Sanity: show iOS Flutter files
+        run: |
+          echo "FLUTTER_ROOT=$FLUTTER_ROOT"
+          ls -la ios/Flutter || true
+          test -f ios/Flutter/Generated.xcconfig && echo "Generated.xcconfig present ✅" || echo "Generated.xcconfig missing ❌"
         working-directory: ${{ env.APP_DIR }}
 
       - name: Install CocoaPods
@@ -117,7 +137,7 @@ jobs:
         run: flutter build ios --no-codesign
         working-directory: ${{ env.APP_DIR }}
 
-      - name: Upload iOS build products
+      - name: Upload iOS build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ios-build
