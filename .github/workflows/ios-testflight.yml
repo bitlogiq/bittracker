@@ -18,10 +18,10 @@ jobs:
       FLUTTER_VERSION: '3.35.1'
       IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APPLE_ID_EMAIL: ${{ secrets.APPLE_ID_EMAIL }}
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      # IMPORTANT: base64-encoded contents of your .p8 key file
+      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
@@ -30,13 +30,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Debug • Repo state
-        run: |
-          echo "PWD=$(pwd)"
-          ls -la
-          test -f pubspec.yaml || (echo "pubspec.yaml missing" && exit 1)
-
-      # ---- Flutter toolchain first (so FLUTTER_ROOT exists) ----
+      # ---- Flutter toolchain ----
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -44,49 +38,30 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Debug • Flutter
-        run: |
-          flutter --version
-          which flutter
-
-      - name: Precache iOS & fetch packages
+      - name: Precache iOS & pub get
         run: |
           set -e
           flutter precache --ios
           flutter pub get
 
-      # Ensure FLUTTER_ROOT is exported (helps Podfile fallback logic)
       - name: Export FLUTTER_ROOT
         shell: bash
         run: |
-          set -e
           FLUTTER_BIN="$(which flutter)"
           FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
           echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
-          echo "✅ FLUTTER_ROOT=$FLUTTER_ROOT"
 
-      # If Generated.xcconfig was committed from Windows, regenerate it for macOS
       - name: Normalize Generated.xcconfig (Windows path guard)
         run: |
           set -e
           if [ -f ios/Flutter/Generated.xcconfig ] && grep -qi '^FLUTTER_ROOT=c:' ios/Flutter/Generated.xcconfig; then
-            echo "Windows path detected in Generated.xcconfig; regenerating..."
+            echo "Windows path detected; regenerating..."
             rm -f ios/Flutter/Generated.xcconfig
             flutter pub get
           fi
-          test -f ios/Flutter/Generated.xcconfig || (echo "Generated.xcconfig missing after regen" && exit 1)
-          echo "✅ ios/Flutter/Generated.xcconfig OK"
+          test -f ios/Flutter/Generated.xcconfig || (echo "Generated.xcconfig missing" && exit 1)
 
-      # (Optional) Cache Pods by lockfile hash
-      - name: Cache Pods
-        uses: actions/cache@v4
-        with:
-          path: ios/Pods
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pods-
-
-      # ---- Ruby / fastlane / cocoapods ----
+      # ---- Ruby / Pods / Fastlane ----
       - name: Install Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -101,7 +76,6 @@ jobs:
           pod --version
           fastlane --version
 
-      # ---- Clean & install Pods in correct order ----
       - name: Reset Pods
         run: rm -rf ios/Pods ios/Podfile.lock
 
@@ -119,23 +93,40 @@ jobs:
           set -e
           flutter build ios --release --no-codesign
 
-      # ---- App Store Connect API key for fastlane ----
-      - name: Create App Store Connect API key file
+      # ---- Rehydrate the .p8 and build a valid AuthKey.json for Fastlane ----
+      - name: Create App Store Connect API key file from base64
         shell: bash
         run: |
           set -e
-          cat > AuthKey.json <<'JSON'
+          if [ -z "${ASC_PRIVATE_KEY_B64}" ]; then
+            echo "ASC_PRIVATE_KEY_B64 secret is missing"; exit 1
+          fi
+          # Decode to raw .p8, strip any CRLFs just in case
+          echo "${ASC_PRIVATE_KEY_B64}" | base64 -d | tr -d '\r' > AuthKey.p8
+
+          # Optional: verify key curve is prime256v1 / secp256r1 (ES256)
+          if command -v openssl >/dev/null 2>&1; then
+            if ! openssl pkey -in AuthKey.p8 -noout -text 2>/dev/null | grep -qiE 'prime256v1|secp256r1'; then
+              echo "::warning ::Could not verify EC curve as P-256; ensure this is the Apple ASC .p8 key (ES256)."
+            fi
+          fi
+
+          # Escape into JSON string with literal \n line breaks, escape any quotes
+          KEY_ESCAPED=$(awk '{gsub(/"/, "\\\""); printf "%s\\n", $0 }' AuthKey.p8)
+
+          cat > AuthKey.json <<JSON
           {
             "key_id": "${ASC_KEY_ID}",
             "issuer_id": "${ASC_ISSUER_ID}",
-            "key": "${ASC_PRIVATE_KEY}",
+            "key": "${KEY_ESCAPED}",
             "duration": 1200,
             "in_house": false
           }
           JSON
+
           echo "✅ AuthKey.json created"
 
-      # ---- Keychain + match (FIRST RUN: readonly:false to create certs/profiles) ----
+      # ---- Keychain + match (FIRST run creates certs/profiles; set readonly:true later) ----
       - name: Set up keychain & fetch signing with match
         env:
           MATCH_KEYCHAIN_NAME: build.keychain
@@ -149,7 +140,6 @@ jobs:
             unlock:true \
             timeout:3600
 
-          # If your match repo requires Basic Auth, env is already set
           if [ -n "${MATCH_GIT_BASIC_AUTHORIZATION}" ]; then
             export MATCH_GIT_BASIC_AUTHORIZATION="${MATCH_GIT_BASIC_AUTHORIZATION}"
           fi
@@ -197,7 +187,3 @@ jobs:
           name: ios-ipa
           path: ios/build/*.ipa
           if-no-files-found: warn
-
-      - name: Done
-        if: always()
-        run: echo "🏁 Workflow finished."
