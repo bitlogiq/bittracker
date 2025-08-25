@@ -18,17 +18,9 @@ jobs:
       FLUTTER_VERSION: '3.35.1'
       IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      # App Store Connect (keep existing KEY_ID and ISSUER_ID)
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      # Provide ONE of the following (the step below accepts any):
-      #   ASC_PRIVATE_KEY_B64  (base64 of the raw .p8)
-      #   APP_STORE_CONNECT_PRIVATE_KEY (raw multiline .p8 content)
-      #   APP_STORE_CONNECT_PRIVATE_KEY_JSON (full JSON string)
       ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
-      APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-      APP_STORE_CONNECT_PRIVATE_KEY_JSON: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_JSON }}
-      # fastlane match
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
@@ -37,7 +29,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---- Flutter toolchain first ----
+      # ---------- Validate required secrets early ----------
+      - name: Validate required secrets
+        run: |
+          set -e
+          fail=0
+          [ -z "${IOS_BUNDLE_ID}" ] && echo "::error ::IOS_BUNDLE_ID is missing" && fail=1
+          [ -z "${APPLE_TEAM_ID}" ] && echo "::error ::APPLE_TEAM_ID is missing" && fail=1
+          [ -z "${ASC_KEY_ID}" ] && echo "::error ::APP_STORE_CONNECT_KEY_ID is missing" && fail=1
+          [ -z "${ASC_ISSUER_ID}" ] && echo "::error ::APP_STORE_CONNECT_ISSUER_ID is missing" && fail=1
+          [ -z "${ASC_PRIVATE_KEY_B64}" ] && echo "::error ::ASC_PRIVATE_KEY_B64 is missing (add base64 of your .p8 Apple API key)" && fail=1
+          [ -z "${MATCH_GIT_URL}" ] && echo "::error ::MATCH_GIT_URL is missing" && fail=1
+          [ -z "${MATCH_PASSWORD}" ] && echo "::error ::MATCH_PASSWORD is missing" && fail=1
+          [ $fail -ne 0 ] && exit 1 || echo "✅ Secrets present"
+
+      # ---------- Flutter / Pods ----------
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -45,7 +51,7 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Precache iOS & fetch packages
+      - name: Precache iOS & pub get
         run: |
           set -e
           flutter precache --ios
@@ -60,7 +66,6 @@ jobs:
           echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
           echo "✅ FLUTTER_ROOT=$FLUTTER_ROOT"
 
-      # If Generated.xcconfig was committed from Windows, regenerate it for macOS
       - name: Normalize Generated.xcconfig (Windows path guard)
         run: |
           set -e
@@ -72,7 +77,6 @@ jobs:
           test -f ios/Flutter/Generated.xcconfig || (echo "Generated.xcconfig missing after regen" && exit 1)
           echo "✅ ios/Flutter/Generated.xcconfig OK"
 
-      # ---- Ruby / Pods / Fastlane ----
       - name: Install Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -87,16 +91,6 @@ jobs:
           pod --version
           fastlane --version
 
-      # (Optional) Cache Pods by lockfile hash
-      - name: Cache Pods
-        uses: actions/cache@v4
-        with:
-          path: ios/Pods
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pods-
-
-      # ---- Clean & install Pods in correct order ----
       - name: Reset Pods
         run: rm -rf ios/Pods ios/Podfile.lock
 
@@ -108,74 +102,39 @@ jobs:
           pod install
           echo "✅ pod install complete"
 
-      # ---- Early sanity build (no signing) to catch Pod/Swift issues ----
+      # ---------- Early sanity build (no signing) ----------
       - name: Build iOS (no codesign)
         run: |
           set -e
           flutter build ios --release --no-codesign
 
-      # ---- Create App Store Connect API key file (robust: B64, RAW .p8, or JSON) ----
-      - name: Create App Store Connect API key file (robust)
+      # ---------- Rehydrate API key from base64 and verify EC curve ----------
+      - name: Create App Store Connect API key file from base64 (and verify)
         shell: bash
         env:
           ASC_PRIVATE_KEY_B64: ${{ env.ASC_PRIVATE_KEY_B64 }}
-          ASC_PRIVATE_KEY_RAW: ${{ env.APP_STORE_CONNECT_PRIVATE_KEY }}
-          ASC_PRIVATE_KEY_JSON: ${{ env.APP_STORE_CONNECT_PRIVATE_KEY_JSON }}
           ASC_KEY_ID: ${{ env.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ env.ASC_ISSUER_ID }}
         run: |
           set -e
-          python3 - << 'PY'
-          import os, sys, base64, json
-
-          b64 = (os.environ.get("ASC_PRIVATE_KEY_B64") or "").strip()
-          raw = (os.environ.get("ASC_PRIVATE_KEY_RAW") or "").strip()
-          jsv = (os.environ.get("ASC_PRIVATE_KEY_JSON") or "").strip()
-          key_id = os.environ["ASC_KEY_ID"].strip()
-          issuer = os.environ["ASC_ISSUER_ID"].strip()
-
-          # If JSON provided, write directly
-          if jsv:
-            try:
-              obj = json.loads(jsv)
-              open("AuthKey.json","w").write(json.dumps(obj))
-              print("✅ AuthKey.json written from JSON secret")
-              sys.exit(0)
-            except Exception as e:
-              print("Provided APP_STORE_CONNECT_PRIVATE_KEY_JSON is not valid JSON:", e, file=sys.stderr)
-              sys.exit(1)
-
-          key_bytes = b""
-          if b64:
-            try:
-              key_bytes = base64.b64decode(b64)
-            except Exception as e:
-              print("Failed to decode ASC_PRIVATE_KEY_B64:", e, file=sys.stderr)
-              sys.exit(1)
-          elif raw:
-            key_bytes = raw.replace("\r\n", "\n").encode("utf-8")
-          else:
-            print("No ASC_PRIVATE_KEY_B64, APP_STORE_CONNECT_PRIVATE_KEY, or APP_STORE_CONNECT_PRIVATE_KEY_JSON provided.", file=sys.stderr)
-            sys.exit(1)
-
-          # Persist .p8 (optional; useful for debugging locally)
-          open("AuthKey.p8","wb").write(key_bytes)
-          txt = key_bytes.decode("utf-8", "replace")
-
-          # Escape into JSON (keep literal \n)
-          key_escaped = txt.replace("\\", "\\\\").replace('"','\\"').replace("\n", "\\n")
-          obj = {
-            "key_id": key_id,
-            "issuer_id": issuer,
-            "key": key_escaped,
+          echo "${ASC_PRIVATE_KEY_B64}" | base64 -d > AuthKey.p8
+          if ! openssl pkey -in AuthKey.p8 -noout -text 2>/dev/null | grep -qiE 'prime256v1|secp256r1'; then
+            echo "::error ::API key is not EC P-256 (ES256). Recreate a Team Key in App Store Connect → App Store Connect API."; exit 1
+          fi
+          echo "✅ API key curve OK (P-256)"
+          KEY_ESCAPED=$(awk '{gsub(/"/, "\\\""); printf "%s\\n", $0 }' AuthKey.p8)
+          cat > AuthKey.json <<JSON
+          {
+            "key_id": "${ASC_KEY_ID}",
+            "issuer_id": "${ASC_ISSUER_ID}",
+            "key": "${KEY_ESCAPED}",
             "duration": 1200,
-            "in_house": False
+            "in_house": false
           }
-          open("AuthKey.json", "w").write(json.dumps(obj))
-          print("✅ AuthKey.json created from .p8")
-          PY
+          JSON
+          echo "✅ AuthKey.json ready"
 
-      # ---- Keychain + match (FIRST run creates certs/profiles; later set readonly:true) ----
+      # ---------- Signing (FIRST RUN: readonly:false to create certs/profiles) ----------
       - name: Set up keychain & fetch signing with match
         env:
           MATCH_KEYCHAIN_NAME: build.keychain
@@ -193,7 +152,6 @@ jobs:
             export MATCH_GIT_BASIC_AUTHORIZATION="${MATCH_GIT_BASIC_AUTHORIZATION}"
           fi
 
-          # FIRST success only: allow creation (readonly:false)
           fastlane run match \
             type:"appstore" \
             app_identifier:"${IOS_BUNDLE_ID}" \
@@ -203,7 +161,6 @@ jobs:
             keychain_name:"$MATCH_KEYCHAIN_NAME" \
             keychain_password:"$MATCH_KEYCHAIN_PASSWORD"
 
-      # ---- Build IPA with fastlane (gym) ----
       - name: Build IPA
         run: |
           set -e
@@ -218,7 +175,6 @@ jobs:
             xcargs:"DEVELOPMENT_TEAM=${APPLE_TEAM_ID} PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID}"
           ls -lah ios/build
 
-      # ---- Upload to TestFlight ----
       - name: Upload to TestFlight
         run: |
           set -e
@@ -228,7 +184,6 @@ jobs:
             distribute_external:false
           echo "✅ Upload to TestFlight initiated"
 
-      # ---- Keep artifacts (IPA) ----
       - name: Keep artifacts (IPA)
         if: always()
         uses: actions/upload-artifact@v4
