@@ -1,21 +1,5 @@
-name: Seed iOS Certs (one-off)
-
-on:
-  workflow_dispatch:
-
-jobs:
-  seed:
-    runs-on: macos-14
-    env:
-      APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
-      TEAM_ID: ${{ secrets.TEAM_ID }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_GIT_BRANCH: main
-
     steps:
-      - name: Checkout repo
+      - name: Checkout app
         uses: actions/checkout@v4
 
       - name: Set up Ruby
@@ -23,19 +7,12 @@ jobs:
         with:
           ruby-version: '3.2'
 
-      - name: Install fastlane
-        run: gem install fastlane
-
-      - name: Guard required secrets
+      - name: Install fastlane (and optionally Cocoapods)
         shell: bash
         run: |
-          if [ -z "${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}" ]; then echo "Missing MATCH_GIT_BASIC_AUTHORIZATION"; exit 1; fi
-          if [ -z "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" ]; then echo "Missing APP_STORE_CONNECT_KEY_ID"; exit 1; fi
-          if [ -z "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" ]; then echo "Missing APP_STORE_CONNECT_ISSUER_ID"; exit 1; fi
-          if [ -z "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" ]; then echo "Missing APP_STORE_CONNECT_PRIVATE_KEY"; exit 1; fi
-          echo "All required secrets present."
+          gem install fastlane
+          brew install cocoapods || true
 
-      # ✅ Generate AuthKey.json with proper escaping (fixes JSON::ParserError)
       - name: Write ASC API key JSON
         shell: bash
         env:
@@ -53,13 +30,13 @@ jobs:
                    };
                    File.write("AuthKey.json", JSON.generate(data))'
 
-      - name: Run fastlane match (create certs & profiles)
+      - name: Pull certs/profiles (readonly)
         shell: bash
         env:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
         run: |
           fastlane match appstore \
-            --readonly false \
+            --readonly true \
             --git_url "$MATCH_GIT_URL" \
             --git_branch "$MATCH_GIT_BRANCH" \
             --git_basic_authorization "${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}" \
@@ -67,3 +44,33 @@ jobs:
             --team_id "$TEAM_ID" \
             --username "$APPLE_ID" \
             --api_key_path ./AuthKey.json
+
+      # ---------- Flutter build ----------
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # flutter-version: "3.35.1"
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Precache iOS artifacts
+        run: flutter precache --ios
+
+      - name: Build IPA (App Store)
+        env:
+          CI: "true"
+        shell: bash
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM $TEAM_ID" ios/Runner.xcodeproj/project.pbxproj || true
+          flutter build ipa --release --export-method app-store
+
+      # ---------- Upload to TestFlight ----------
+      - name: Upload to TestFlight
+        shell: bash
+        run: |
+          fastlane pilot upload \
+            --api_key_path ./AuthKey.json \
+            --ipa "build/ios/ipa/Runner.ipa" \
+            --skip_waiting_for_build_processing true
