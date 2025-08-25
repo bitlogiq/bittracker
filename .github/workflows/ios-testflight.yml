@@ -1,4 +1,4 @@
-name: iOS TestFlight
+name: iOS TestFlight Build
 
 on:
   push:
@@ -6,98 +6,99 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-upload:
+  build:
     runs-on: macos-14
     env:
-      # App / Apple
       APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
       TEAM_ID: ${{ secrets.TEAM_ID }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
-
-      # ASC API key
-      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-
-      # match (cert repo)
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-      MATCH_GIT_BRANCH: main
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+      MATCH_GIT_BRANCH: main
 
     steps:
-      - name: Checkout
+      - name: Checkout app
         uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
         with:
-          channel: stable
-          flutter-version: 3.35.1
+          ruby-version: '3.2'
 
-      - name: Flutter pub get
-        run: flutter pub get
-
-      - name: Precache iOS artifacts
-        run: flutter precache --ios
-
-      - name: Warm iOS build (profile, no codesign)
-        run: flutter build ios --profile --no-codesign
-
-      - name: Create CI keychain
+      - name: Install fastlane & cocoapods
+        shell: bash
         run: |
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
+          gem install fastlane
+          brew install cocoapods
 
-      - name: Write ASC API key (JSON) for fastlane
+      # Write the same App Store Connect API key JSON we used in seeding
+      - name: Write ASC API key JSON
+        shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
-          cat > AuthKey.json <<'JSON'
-          {
-            "key_id": "${ASC_KEY_ID}",
-            "issuer_id": "${ASC_ISSUER_ID}",
-            "key": "${ASC_PRIVATE_KEY}",
-            "duration": 1200,
-            "in_house": false
-          }
-          JSON
+          ruby -e 'require "json";
+                   data = {
+                     "key_id"    => ENV["ASC_KEY_ID"],
+                     "issuer_id" => ENV["ASC_ISSUER_ID"],
+                     "key"       => ENV["ASC_PRIVATE_KEY"],
+                     "duration"  => 1200,
+                     "in_house"  => false
+                   };
+                   File.write("AuthKey.json", JSON.generate(data))'
 
-      # Use certs/profiles from the cert repo (readonly since we've seeded them)
-      - name: Fastlane match (appstore, readonly)
+      - name: Pull certs/profiles (readonly)
+        shell: bash
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
         run: |
           fastlane match appstore \
             --readonly true \
             --git_url "$MATCH_GIT_URL" \
             --git_branch "$MATCH_GIT_BRANCH" \
-            --git_basic_authorization "$MATCH_GIT_BASIC_AUTHORIZATION" \
+            --git_basic_authorization "${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}" \
             --app_identifier "$APP_IDENTIFIER" \
             --team_id "$TEAM_ID" \
             --username "$APPLE_ID" \
             --api_key_path ./AuthKey.json
-        env:
-          MATCH_GIT_URL: ${{ env.MATCH_GIT_URL }}
-          MATCH_GIT_BRANCH: ${{ env.MATCH_GIT_BRANCH }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ env.MATCH_GIT_BASIC_AUTHORIZATION }}
-          MATCH_PASSWORD: ${{ env.MATCH_PASSWORD }}
-          APP_IDENTIFIER: ${{ env.APP_IDENTIFIER }}
-          TEAM_ID: ${{ env.TEAM_ID }}
-          APPLE_ID: ${{ env.APPLE_ID }}
 
-      - name: Build IPA (app-store)
+      # ---------- Flutter build ----------
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # optional: pin a version e.g. flutter-version: "3.35.1"
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Ensure iOS platform + Pod install
+        shell: bash
         run: |
+          if [ ! -d ios ]; then
+            flutter create . --platforms ios
+          fi
+          cd ios
+          pod install
+          cd ..
+
+      - name: Precache iOS artifacts
+        run: flutter precache --ios
+
+      - name: Build IPA (App Store)
+        shell: bash
+        run: |
+          # ensure Xcode project has the correct team set (safe to try)
           /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM $TEAM_ID" ios/Runner.xcodeproj/project.pbxproj || true
           flutter build ipa --release --export-method app-store
 
-      - name: Write API key (.p8) to file
-        run: echo "${ASC_PRIVATE_KEY}" > ./AuthKey.p8
-
+      # ---------- Upload to TestFlight ----------
       - name: Upload to TestFlight
+        shell: bash
         run: |
-          gem install fastlane
           fastlane pilot upload \
-            --api_key_path ./AuthKey.p8 \
-            --api_key_id $ASC_KEY_ID \
-            --api_key_issuer_id $ASC_ISSUER_ID \
+            --api_key_path ./AuthKey.json \
             --ipa "build/ios/ipa/Runner.ipa" \
             --skip_waiting_for_build_processing true
