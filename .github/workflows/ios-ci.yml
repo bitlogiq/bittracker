@@ -1,115 +1,39 @@
-name: iOS Build & TestFlight
+name: Android CI (Flutter → AAB/APK)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
 
 jobs:
-  ios:
-    runs-on: macos-14
-
-    defaults:
-      run:
-        shell: bash
-
+  android:
+    runs-on: ubuntu-latest
     env:
-      APP_DIR: bittracker/bittracker
+      FLUTTER_VERSION: '3.35.1'
 
     steps:
-      # ------------ Source checkout ------------
-      - name: Checkout app
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------ Ruby & Fastlane ------------
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-
-      - name: Install fastlane
-        run: gem install fastlane
-
-      # ------------ App Store Connect API key ------------
-      - name: Write ASC API key JSON
-        env:
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-        run: |
-          ruby -e 'require "json";
-                   data = {
-                     "key_id"    => ENV["ASC_KEY_ID"],
-                     "issuer_id" => ENV["ASC_ISSUER_ID"],
-                     "key"       => ENV["ASC_PRIVATE_KEY"],
-                     "duration"  => 1200,
-                     "in_house"  => false
-                   };
-                   File.write("AuthKey.json", JSON.generate(data))'
-
-      # ------------ Flutter setup & Pods ------------
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
-          flutter-version: '3.35.1'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      - name: Flutter pub get
-        working-directory: ${{ env.APP_DIR }}
+      - name: Flutter — pub get
         run: flutter pub get
 
-      - name: Precache iOS artifacts
-        working-directory: ${{ env.APP_DIR }}
-        run: flutter precache --ios
+      - name: Build Android App Bundle
+        run: flutter build appbundle --release
 
-      - name: Ensure iOS folder exists (safe if already present)
-        working-directory: ${{ env.APP_DIR }}
-        run: |
-          if [ ! -d ios ]; then
-            flutter create . --platforms ios
-          fi
+      - name: Build Android APK
+        run: flutter build apk --release
 
-      - name: Pod install
-        working-directory: ${{ env.APP_DIR }}/ios
-        run: |
-          pod repo update
-          pod install
-
-      # Optional warm build to surface issues early (no codesign)
-      - name: Warm iOS build (no codesign)
-        working-directory: ${{ env.APP_DIR }}
-        env:
-          CI: "true"
-        run: flutter build ios --profile --no-codesign
-
-      # ------------ Certificates / profiles (readonly match) ------------
-      - name: Pull certs/profiles (readonly)
-        env:
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-        run: |
-          fastlane match appstore \
-            --readonly true \
-            --git_url "https://github.com/bitlogiq/ios-cert-store.git" \
-            --git_branch "main" \
-            --git_basic_authorization "${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}" \
-            --app_identifier "${{ secrets.APP_IDENTIFIER }}" \
-            --team_id "${{ secrets.TEAM_ID }}" \
-            --username "${{ secrets.APPLE_ID }}" \
-            --api_key_path ./AuthKey.json
-
-      # ------------ Final IPA build & TestFlight upload ------------
-      - name: Build IPA (App Store)
-        working-directory: ${{ env.APP_DIR }}
-        env:
-          CI: "true"
-          TEAM_ID: ${{ secrets.TEAM_ID }}
-        run: |
-          /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM $TEAM_ID" ios/Runner.xcodeproj/project.pbxproj || true
-          flutter build ipa --release --export-method app-store
-
-      - name: Upload to TestFlight
-        run: |
-          fastlane pilot upload \
-            --api_key_path ./AuthKey.json \
-            --ipa "${{ env.APP_DIR }}/build/ios/ipa/Runner.ipa" \
-            --skip_waiting_for_build_processing true
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-artifacts
+          path: |
+            build/app/outputs/**/*.aab
+            build/app/outputs/**/*.apk
+          if-no-files-found: warn
