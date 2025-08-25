@@ -9,7 +9,6 @@ require File.expand_path(File.join('Flutter', 'podhelper'), __dir__)
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  # If you need Swift frameworks, keep these. (Static linking prevents conflicts with Firebase, etc.)
   use_frameworks! :linkage => :static
   use_modular_headers!
 
