@@ -20,8 +20,8 @@ jobs:
       ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}    # full .p8 contents (BEGIN/END included)
 
       # fastlane match (certificates repo)
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                      # e.g. https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_GIT_BRANCH: master                                         # use 'master' because your logs show master
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                      # https://github.com/bitlogiq/ios-cert-store.git
+      MATCH_GIT_BRANCH: master                                         # your logs show 'master'
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}                    # encryption password for match repo
       MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }} # Base64(username:token) with repo write access
 
@@ -41,7 +41,7 @@ jobs:
       - name: Precache iOS artifacts
         run: flutter precache --ios
 
-      # Optional warm build so Flutter sets up Pods/workspace (uses the Podfile committed in ios/)
+      # Optional warm build so Flutter sets up Pods/workspace
       - name: Warm iOS build (profile, no codesign)
         run: flutter build ios --profile --no-codesign
 
@@ -67,10 +67,11 @@ jobs:
           JSON
 
       # Pull/create signing certs & profiles (NOT readonly) and store into cert repo
-      - name: Fastlane match (appstore)
+      - name: Fastlane match (appstore, read-write)
         run: |
           echo "Using cert repo: $MATCH_GIT_URL (branch: $MATCH_GIT_BRANCH)"
           fastlane match appstore \
+            --readonly false \
             --git_url "$MATCH_GIT_URL" \
             --git_branch "$MATCH_GIT_BRANCH" \
             --git_basic_authorization "$MATCH_GIT_BASIC_AUTHORIZATION" \
