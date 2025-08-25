@@ -106,7 +106,6 @@ jobs:
           set -e
           flutter build ios --release --no-codesign
 
-      # Useful to see if there are extra targets with their own bundle IDs
       - name: Inspect bundle identifiers
         run: |
           echo "Bundle IDs found in project:"
@@ -173,7 +172,7 @@ jobs:
             team_id:"${APPLE_TEAM_ID}" \
             path:"ios/Runner.xcodeproj"
 
-      # ---------- Build IPA (allow provisioning updates) ----------
+      # ---------- Build IPA (use xcodebuild flags via xcargs/export_xcargs) ----------
       - name: Build IPA
         run: |
           set -e
@@ -185,8 +184,8 @@ jobs:
             include_bitcode:false \
             output_directory:"ios/build" \
             output_name:"BitTracker.ipa" \
-            allow_provisioning_updates:true \
-            xcargs:"DEVELOPMENT_TEAM=${APPLE_TEAM_ID} PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} CODE_SIGN_STYLE=Automatic"
+            xcargs:"-allowProvisioningUpdates DEVELOPMENT_TEAM=${APPLE_TEAM_ID} PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} CODE_SIGN_STYLE=Automatic" \
+            export_xcargs:"-allowProvisioningUpdates"
           ls -lah ios/build
 
       # If build fails, print the end of the gym log to console
