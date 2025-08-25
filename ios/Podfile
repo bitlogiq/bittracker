@@ -1,5 +1,6 @@
-platform :ios, '12.0'
+# ios/Podfile
 
+platform :ios, '13.0'
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
 project 'Runner', {
@@ -8,52 +9,34 @@ project 'Runner', {
   'Release' => :release,
 }
 
-require 'fileutils'
-
-# Resolve Flutter SDK root from `flutter` on PATH and export FLUTTER_ROOT
-def resolve_flutter_root!
-  flutter_bin = `which flutter`.strip
-  if flutter_bin.empty?
-    raise 'flutter not found on PATH; ensure CI sets up Flutter before pod install'
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "Generated.xcconfig must exist. Run 'flutter pub get' first."
   end
-  flutter_root = File.expand_path('..', File.dirname(flutter_bin))
-  ENV['FLUTTER_ROOT'] = flutter_root
-  flutter_root
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in Generated.xcconfig. Run 'flutter pub get' first."
 end
 
-flutter_root = resolve_flutter_root!
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
-# Always use the SDK copy of podhelper (skip local one to avoid env issues)
-sdk_podhelper = File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
-unless File.exist?(sdk_podhelper)
-  raise "Could not find podhelper.rb at #{sdk_podhelper}"
-end
-
-# Best‑effort: sync into ios/Flutter so Xcode/local devs still have it
-begin
-  flutter_dir = File.expand_path('Flutter', __dir__)
-  Dir.mkdir(flutter_dir) unless Dir.exist?(flutter_dir)
-  FileUtils.cp(sdk_podhelper, File.join(flutter_dir, 'podhelper.rb'))
-rescue
-  # ignore copy errors
-end
-
-require sdk_podhelper.sub(/\.rb$/, '')
-
-# ---- Standard Flutter CocoaPods setup ----
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  use_frameworks! :linkage => :static
+  use_frameworks!
   use_modular_headers!
-  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-end
 
-post_install do |installer|
-  installer.pods_project.targets.each do |t|
-    t.build_configurations.each do |c|
-      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
-      c.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+
+  # Ensure all pods use at least the same deployment target
+  post_install do |installer|
+    installer.pods_project.targets.each do |t|
+      t.build_configurations.each do |bc|
+        bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+      end
     end
   end
 end
