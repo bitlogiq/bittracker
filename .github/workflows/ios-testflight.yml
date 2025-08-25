@@ -15,18 +15,19 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID }}                                # roelofhorowitz@hotmail.com
 
       # App Store Connect API key (Users and Access → Keys)
-      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}              # G3T7T7WP8A
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}        # issuer UUID
+      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}    # full .p8 contents (BEGIN/END included)
 
       # fastlane match (certificates repo)
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                      # https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_GIT_BRANCH: master
+      MATCH_GIT_BRANCH: master                                         # your cert repo branch
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}                    # Superm@n007
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }} # Base64(username:token)
 
-      # Hard override
+      # 🔒 hard overrides for readonly
       MATCH_READONLY: "false"
+      FASTLANE_MATCH_READONLY: "false"
 
     steps:
       - name: Checkout
@@ -66,15 +67,30 @@ jobs:
           }
           JSON
 
+      # Create a local Matchfile that forces readonly(false) (CLI will still supply git/url/etc.)
+      - name: Create local fastlane/Matchfile with readonly(false)
+        run: |
+          mkdir -p fastlane
+          cat > fastlane/Matchfile <<'RUBY'
+          storage_mode("git")
+          type("appstore")
+          readonly(false)
+          RUBY
+          echo "---- fastlane/Matchfile ----"
+          cat fastlane/Matchfile
+          echo "----------------------------"
+
+      # Show env so we can see if something is still injecting readonly
       - name: Debug env for match
         run: |
           echo "MATCH_READONLY=${MATCH_READONLY:-<unset>}"
+          echo "FASTLANE_MATCH_READONLY=${FASTLANE_MATCH_READONLY:-<unset>}"
           echo "MATCH_GIT_URL=$MATCH_GIT_URL"
           echo "MATCH_GIT_BRANCH=$MATCH_GIT_BRANCH"
           echo "APP_IDENTIFIER=$APP_IDENTIFIER"
           echo "TEAM_ID=$TEAM_ID"
 
-      # Patch Matchfile if it contains readonly(true)
+      # Optional: patch readonly(true) inside cert repo's Matchfile(s), then push back
       - name: Clone cert repo and patch Matchfile (force non-readonly)
         run: |
           rm -rf certs_tmp
@@ -96,8 +112,12 @@ jobs:
 
       - name: Fastlane match (appstore, read-write)
         run: |
-          echo "Running fastlane match..."
+          echo "Running fastlane match (expect readonly=false)..."
+          # Ensure no stray env wins
+          unset MATCH_READONLY || true
+          unset FASTLANE_MATCH_READONLY || true
           fastlane match appstore \
+            --verbose \
             --readonly false \
             --git_url "$MATCH_GIT_URL" \
             --git_branch "$MATCH_GIT_BRANCH" \
@@ -111,7 +131,6 @@ jobs:
           MATCH_GIT_BRANCH: ${{ env.MATCH_GIT_BRANCH }}
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ env.MATCH_GIT_BASIC_AUTHORIZATION }}
           MATCH_PASSWORD: ${{ env.MATCH_PASSWORD }}
-          MATCH_READONLY: "false"
           APP_IDENTIFIER: ${{ env.APP_IDENTIFIER }}
           TEAM_ID: ${{ env.TEAM_ID }}
           APPLE_ID: ${{ env.APPLE_ID }}
