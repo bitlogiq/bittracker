@@ -1,18 +1,33 @@
-# ios/Podfile
+# Uncomment this line to define a global platform for your project
+platform :ios, '11.0'
 
-platform :ios, '13.0'
-ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+# --- BEGIN: Ensure FLUTTER_ROOT is set in CI ---
+unless ENV['FLUTTER_ROOT']
+  flutter_bin = `which flutter`.strip
+  if flutter_bin.length > 0
+    ENV['FLUTTER_ROOT'] = File.expand_path('..', File.dirname(flutter_bin))
+  else
+    raise 'flutter not found on PATH; ensure the workflow sets up Flutter before pod install'
+  end
+end
+# --- END: Ensure FLUTTER_ROOT is set in CI ---
 
 # Pull in Flutter's CocoaPods helpers (resolve relative to this Podfile)
 require File.expand_path(File.join('Flutter', 'podhelper'), __dir__)
 
-flutter_ios_podfile_setup
+flutter_application_path = File.expand_path('..', __dir__)
+eval(File.read(File.join(flutter_application_path, '.flutter-plugins-dependencies')), binding) if File.exist?(File.join(flutter_application_path, '.flutter-plugins-dependencies'))
 
 target 'Runner' do
-  use_frameworks! :linkage => :static
+  use_frameworks!
   use_modular_headers!
 
-  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  flutter_ios_podfile_setup
+
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+
 end
 
 post_install do |installer|
