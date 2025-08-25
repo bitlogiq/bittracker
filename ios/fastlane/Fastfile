@@ -1,1 +1,46 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Build & upload to TestFlight"
+  lane :beta do
+    # Read from environment (set in workflow)
+    app_identifier = ENV['APP_IDENTIFIER']         # e.g. com.bitlogiq.bittracker
+    team_id       = ENV['APPLE_TEAM_ID']           # Developer Team ID
+    apple_id      = ENV['APPLE_ID_EMAIL']          # Apple ID email for Fastlane session
+    api_key_path  = "AuthKey.json"                 # Written by workflow step
+
+    # Ensure API key file present
+    unless File.exist?(api_key_path)
+      UI.user_error!("Missing #{api_key_path}. The workflow should create it from secrets.")
+    end
+
+    api_key = app_store_connect_api_key(
+      key_id: JSON.parse(File.read(api_key_path))["key_id"],
+      issuer_id: JSON.parse(File.read(api_key_path))["issuer_id"],
+      key: JSON.parse(File.read(api_key_path))["key"],
+      in_house: false
+    )
+
+    # Build (Xcode under the hood)
+    build_app(
+      scheme: "Runner",
+      workspace: "Runner.xcworkspace",
+      export_method: "app-store",
+      clean: true,
+      include_bitcode: false,
+      output_directory: "build",
+      output_name: "BitTracker.ipa",
+      DerivedDataPath: "build/DerivedData",
+      xcargs: "DEVELOPMENT_TEAM=#{team_id} PRODUCT_BUNDLE_IDENTIFIER=#{app_identifier}"
+    )
+
+    # Upload to TestFlight (comment this out if you only want the IPA artifact)
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true,
+      beta_app_description: "BitTracker CI build",
+      distribute_external: false
+    )
+  end
+end
 
