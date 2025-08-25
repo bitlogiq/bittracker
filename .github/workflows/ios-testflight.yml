@@ -37,7 +37,7 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      # --- IMPORTANT: generate Flutter iOS tooling before Pods ---
+      # --- Prepare Flutter for iOS ---
       - name: Precache iOS and fetch packages
         run: |
           flutter --version
@@ -57,6 +57,16 @@ jobs:
           fi
           ls -lah ios/Flutter
 
+      # --- Export FLUTTER_ROOT for CocoaPods ---
+      - name: Export FLUTTER_ROOT for CocoaPods
+        shell: bash
+        run: |
+          FLUTTER_BIN="$(which flutter)"
+          FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
+          echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
+          echo "FLUTTER_ROOT resolved to: $FLUTTER_ROOT"
+
+      # --- Ruby / Fastlane / CocoaPods ---
       - name: Install Ruby + fastlane + cocoapods
         uses: ruby/setup-ruby@v1
         with:
@@ -72,6 +82,7 @@ jobs:
           pod repo update
           pod install
 
+      # --- App Store Connect API key file ---
       - name: Create App Store Connect API key file
         shell: bash
         run: |
@@ -86,7 +97,7 @@ jobs:
           JSON
           ls -lah AuthKey.json
 
-      # Build IPA without needing a Fastfile
+      # --- Build IPA ---
       - name: Build IPA
         run: |
           fastlane run build_app \
@@ -99,6 +110,7 @@ jobs:
             output_name:"BitTracker.ipa" \
             xcargs:"DEVELOPMENT_TEAM=${APPLE_TEAM_ID} PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID}"
 
+      # --- Upload to TestFlight ---
       - name: Upload to TestFlight
         run: |
           fastlane run upload_to_testflight \
@@ -106,6 +118,7 @@ jobs:
             skip_waiting_for_build_processing:true \
             distribute_external:false
 
+      # --- Keep artifacts (IPA) ---
       - name: Keep artifacts (IPA)
         if: always()
         uses: actions/upload-artifact@v4
