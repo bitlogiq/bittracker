@@ -10,20 +10,23 @@ jobs:
     runs-on: macos-14
     env:
       # App / Apple IDs
-      APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}                    # e.g. za.co.bitlogiq.bittracker
-      TEAM_ID: ${{ secrets.TEAM_ID }}                                  # e.g. R4R4AW7JUQ
-      APPLE_ID: ${{ secrets.APPLE_ID }}                                # e.g. roelofhorowitz@hotmail.com
+      APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}                    # za.co.bitlogiq.bittracker
+      TEAM_ID: ${{ secrets.TEAM_ID }}                                  # R4R4AW7JUQ
+      APPLE_ID: ${{ secrets.APPLE_ID }}                                # roelofhorowitz@hotmail.com
 
-      # App Store Connect API key (Users and Access → Keys)
-      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}              # e.g. G3T7T7WP8A
+      # ASC API key
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}              # G3T7T7WP8A
       ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}        # issuer UUID
-      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}    # full .p8 contents (BEGIN/END included)
+      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}    # full .p8 contents
 
-      # fastlane match (certificates repo)
+      # fastlane match (cert repo)
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                      # https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_GIT_BRANCH: master                                         # your logs show 'master'
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}                    # encryption password for match repo
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }} # Base64(username:token) with repo write access
+      MATCH_GIT_BRANCH: master                                         # your cert repo branch
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}                    # Superm@n007
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }} # Base64(username:PAT)
+
+      # 🔒 Make 100% sure match is NOT readonly
+      MATCH_READONLY: "false"
 
     steps:
       - name: Checkout
@@ -41,11 +44,9 @@ jobs:
       - name: Precache iOS artifacts
         run: flutter precache --ios
 
-      # Optional warm build so Flutter sets up Pods/workspace
       - name: Warm iOS build (profile, no codesign)
         run: flutter build ios --profile --no-codesign
 
-      # Create a dedicated keychain to avoid prompts during codesign
       - name: Create CI keychain
         run: |
           security create-keychain -p "" build.keychain
@@ -53,7 +54,6 @@ jobs:
           security unlock-keychain -p "" build.keychain
           security set-keychain-settings -lut 21600 build.keychain
 
-      # Provide App Store Connect API key for fastlane (Spaceship)
       - name: Write ASC API key (JSON) for fastlane
         run: |
           cat > AuthKey.json <<'JSON'
@@ -66,7 +66,6 @@ jobs:
           }
           JSON
 
-      # Pull/create signing certs & profiles (NOT readonly) and store into cert repo
       - name: Fastlane match (appstore, read-write)
         run: |
           echo "Using cert repo: $MATCH_GIT_URL (branch: $MATCH_GIT_BRANCH)"
@@ -84,17 +83,16 @@ jobs:
           MATCH_GIT_BRANCH: ${{ env.MATCH_GIT_BRANCH }}
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ env.MATCH_GIT_BASIC_AUTHORIZATION }}
           MATCH_PASSWORD: ${{ env.MATCH_PASSWORD }}
+          MATCH_READONLY: "false"
           APP_IDENTIFIER: ${{ env.APP_IDENTIFIER }}
           TEAM_ID: ${{ env.TEAM_ID }}
           APPLE_ID: ${{ env.APPLE_ID }}
 
-      # Build a signed IPA for App Store distribution (Flutter will run CocoaPods as needed)
       - name: Build IPA (app-store)
         run: |
           /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM $TEAM_ID" ios/Runner.xcodeproj/project.pbxproj || true
           flutter build ipa --release --export-method app-store
 
-      # Upload to TestFlight using the same API key
       - name: Write API key (.p8) to file
         run: echo "${ASC_PRIVATE_KEY}" > ./AuthKey.p8
 
