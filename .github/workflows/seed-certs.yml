@@ -1,69 +1,46 @@
 name: Seed iOS Certs (one-off)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # manual trigger only
 
 jobs:
   seed:
     runs-on: macos-14
     env:
-      # App / Apple
-      APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}            # e.g. za.co.bitlogiq.bittracker
-      TEAM_ID: ${{ secrets.TEAM_ID }}                          # e.g. R4R4AW7JUQ
-      APPLE_ID: ${{ secrets.APPLE_ID }}                        # e.g. roelofhorowitz@hotmail.com
-
-      # App Store Connect API key
+      APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-
-      # match (this repo)
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}              # https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_GIT_BRANCH: main
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
       MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      MATCH_GIT_BRANCH: main
 
     steps:
       - name: Checkout cert repo
         uses: actions/checkout@v4
 
-      - name: Set up Ruby + fastlane
+      - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-      - run: gem install fastlane
 
-      - name: Local Matchfile (force non-readonly)
-        run: |
-          mkdir -p fastlane
-          cat > fastlane/Matchfile <<'RUBY'
-          storage_mode("git")
-          type("appstore")
-          readonly(false)
-          RUBY
-          cat fastlane/Matchfile
+      - name: Install fastlane
+        run: gem install fastlane
 
-      - name: Write ASC API key JSON
+      - name: Write App Store Connect key
         run: |
-          cat > AuthKey.json <<'JSON'
-          {
-            "key_id": "${ASC_KEY_ID}",
-            "issuer_id": "${ASC_ISSUER_ID}",
-            "key": "${ASC_PRIVATE_KEY}",
-            "duration": 1200,
-            "in_house": false
-          }
-          JSON
+          echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" > AuthKey.p8
 
-      - name: Create certs & profiles in this repo (read-write)
+      - name: Generate and store certs/profiles
         run: |
-          echo "Seeding to $MATCH_GIT_URL on branch $MATCH_GIT_BRANCH"
+          export MATCH_GIT_BASIC_AUTHORIZATION="${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}"
           fastlane match appstore \
-            --readonly false \
             --git_url "$MATCH_GIT_URL" \
             --git_branch "$MATCH_GIT_BRANCH" \
-            --git_basic_authorization "$MATCH_GIT_BASIC_AUTHORIZATION" \
             --app_identifier "$APP_IDENTIFIER" \
             --team_id "$TEAM_ID" \
             --username "$APPLE_ID" \
-            --api_key_path ./AuthKey.json
+            --readonly false \
+            --force true
