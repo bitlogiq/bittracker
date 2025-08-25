@@ -9,14 +9,21 @@ jobs:
   build-and-upload:
     runs-on: macos-14
     env:
-      APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
-      TEAM_ID: ${{ secrets.TEAM_ID }}
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
-      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
+      # Your repo secrets (set these in Settings → Secrets and variables → Actions)
+      APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}                          # e.g. za.co.bitlogiq.bittracker
+      TEAM_ID: ${{ secrets.TEAM_ID }}                                        # e.g. R4R4AW7JUQ
+      APPLE_ID: ${{ secrets.APPLE_ID }}                                      # e.g. roelofhorowitz@hotmail.com
+
+      # App Store Connect API key (Users and Access → Keys)
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}                    # e.g. G3T7T7WP8A
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}              # issuer UUID
+      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}          # full .p8 contents (BEGIN/END included)
+
+      # fastlane match (cert repo)
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                            # e.g. https://github.com/bitlogiq/ios-cert-store.git
+      MATCH_GIT_BRANCH: main                                                 # change to master if your cert repo uses master
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}                          # match encryption password
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}  # Base64(username:token)
 
     steps:
       - name: Checkout
@@ -34,42 +41,65 @@ jobs:
       - name: Precache iOS artifacts
         run: flutter precache --ios
 
-      # Flutter will invoke CocoaPods automatically using your Podfile
+      # Optional: Quick warm build so Flutter sets up Pods/workspace using your committed ios/Podfile
       - name: Warm iOS build (profile, no codesign)
         run: flutter build ios --profile --no-codesign
 
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
+      # Create a dedicated keychain (avoids macOS prompts in CI)
+      - name: Create CI keychain
+        run: |
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
 
-      - name: Install fastlane
-        run: gem install fastlane
+      # Write ASC API key JSON for fastlane Spaceship (used by match)
+      - name: Write ASC API key (JSON) for fastlane
+        run: |
+          cat > AuthKey.json <<'JSON'
+          {
+            "key_id": "${ASC_KEY_ID}",
+            "issuer_id": "${ASC_ISSUER_ID}",
+            "key": "${ASC_PRIVATE_KEY}",
+            "duration": 1200,
+            "in_house": false
+          }
+          JSON
 
-      # Pull signing certs & provisioning profiles from your match repo
+      # Pull/create signing certs & profiles (NOT readonly) and store in cert repo
       - name: Fastlane match (appstore)
         run: |
-          export MATCH_GIT_BASIC_AUTHORIZATION="${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}"
-          fastlane match appstore --readonly true \
+          echo "Using cert repo: $MATCH_GIT_URL (branch: $MATCH_GIT_BRANCH)"
+          fastlane match appstore \
             --git_url "$MATCH_GIT_URL" \
+            --git_branch "$MATCH_GIT_BRANCH" \
+            --git_basic_authorization "$MATCH_GIT_BASIC_AUTHORIZATION" \
             --app_identifier "$APP_IDENTIFIER" \
             --team_id "$TEAM_ID" \
-            --username "$APPLE_ID"
+            --username "$APPLE_ID" \
+            --api_key_path ./AuthKey.json
         env:
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: ${{ env.MATCH_GIT_URL }}
+          MATCH_GIT_BRANCH: ${{ env.MATCH_GIT_BRANCH }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ env.MATCH_GIT_BASIC_AUTHORIZATION }}
+          MATCH_PASSWORD: ${{ env.MATCH_PASSWORD }}
+          APP_IDENTIFIER: ${{ env.APP_IDENTIFIER }}
+          TEAM_ID: ${{ env.TEAM_ID }}
+          APPLE_ID: ${{ env.APPLE_ID }}
 
-      # Build signed IPA for App Store distribution
+      # Build a signed IPA for App Store distribution (Flutter runs CocoaPods automatically)
       - name: Build IPA (app-store)
         run: |
           /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM $TEAM_ID" ios/Runner.xcodeproj/project.pbxproj || true
           flutter build ipa --release --export-method app-store
 
-      # Upload to TestFlight
-      - name: Write API key to file
-        run: echo "${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}" > ./AuthKey.p8
+      # Write the .p8 for pilot upload and upload to TestFlight
+      - name: Write API key (.p8) to file
+        run: echo "${ASC_PRIVATE_KEY}" > ./AuthKey.p8
 
       - name: Upload to TestFlight
         run: |
+          gem install fastlane
           fastlane pilot upload \
             --api_key_path ./AuthKey.p8 \
             --api_key_id $ASC_KEY_ID \
