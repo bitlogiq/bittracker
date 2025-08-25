@@ -22,6 +22,9 @@ jobs:
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
 
     steps:
       - name: Checkout
@@ -31,63 +34,39 @@ jobs:
         run: |
           echo "✅ Repo checked out"
           echo "PWD=$(pwd)"
-          echo "Top-level files:"
           ls -la
-          echo "Pubspec present?"; test -f pubspec.yaml && echo "Yes" || (echo "No" && exit 1)
+          test -f pubspec.yaml || (echo "pubspec.yaml missing" && exit 1)
 
+      # ---- Flutter toolchain first (so FLUTTER_ROOT exists) ----
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
 
       - name: Debug • Flutter toolchain
         run: |
-          set -e
-          echo "✅ Flutter installed"
           flutter --version
           which flutter
 
-      # --- Prepare Flutter for iOS ---
       - name: Precache iOS and fetch packages
         run: |
           set -e
           flutter precache --ios
           flutter pub get
 
-      - name: Debug • After pub get
-        run: |
-          echo "✅ flutter pub get complete"
-          echo "Dart/Flutter cache dirs:"
-          echo "$HOME/.pub-cache"
-          echo "$HOME/Library/Developer/Xcode/DerivedData (may be empty yet)"
-          echo "ios/ exists?"; test -d ios && echo "Yes" || (echo "No" && exit 1)
+      # (Optional) Cache Pods by lockfile hash
+      - name: Cache Pods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
 
-      # --- Safety net: ensure ios/Flutter/podhelper.rb exists ---
-      - name: Ensure podhelper.rb exists (fallback)
-        shell: bash
-        run: |
-          set -e
-          mkdir -p ios/Flutter
-          FLUTTER_BIN="$(which flutter)"
-          FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
-          if [ ! -f ios/Flutter/podhelper.rb ]; then
-            cp "$FLUTTER_ROOT/packages/flutter_tools/bin/podhelper.rb" ios/Flutter/podhelper.rb
-          fi
-          echo "✅ podhelper.rb ensured"
-          ls -lah ios/Flutter
-
-      # --- Export FLUTTER_ROOT for CocoaPods ---
-      - name: Export FLUTTER_ROOT for CocoaPods
-        shell: bash
-        run: |
-          set -e
-          FLUTTER_BIN="$(which flutter)"
-          FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
-          echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
-          echo "✅ FLUTTER_ROOT exported: $FLUTTER_ROOT"
-
-      # --- Ruby / Fastlane / CocoaPods ---
-      - name: Install Ruby + fastlane + cocoapods
+      # ---- Ruby / fastlane / cocoapods ----
+      - name: Install Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
@@ -98,22 +77,39 @@ jobs:
           set -e
           gem install --no-document cocoapods -v "~> 1.15"
           gem install --no-document fastlane   -v ">= 2.222"
-          echo "✅ Gems installed: cocoapods & fastlane"
           pod --version
           fastlane --version
 
-      - name: CocoaPods install
+      # ---- Ensure FLUTTER_ROOT is exported for pod helper (usually automatic) ----
+      - name: Export FLUTTER_ROOT for CocoaPods
+        shell: bash
         run: |
           set -e
-          cd ios
+          FLUTTER_BIN="$(which flutter)"
+          FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
+          echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> "$GITHUB_ENV"
+          echo "✅ FLUTTER_ROOT exported: $FLUTTER_ROOT"
+
+      # ---- Reset & reinstall Pods (prevents stale locks / targets) ----
+      - name: Reset Pods
+        run: |
+          rm -rf ios/Pods ios/Podfile.lock
+
+      - name: Pod repo update & install
+        working-directory: ios
+        run: |
+          set -e
           pod repo update
           pod install
           echo "✅ pod install complete"
-          ls -lah
-          ls -lah Pods || true
-          ls -lah Runner.xcworkspace
 
-      # --- App Store Connect API key file ---
+      # ---- Optional early sanity build (no signing) to catch Pod/Swift issues ----
+      - name: Build iOS (no codesign)
+        run: |
+          set -e
+          flutter build ios --release --no-codesign
+
+      # ---- Create App Store Connect API key file for fastlane ----
       - name: Create App Store Connect API key file
         shell: bash
         run: |
@@ -127,16 +123,39 @@ jobs:
             "in_house": false
           }
           JSON
-          echo "✅ AuthKey.json created (not printing contents for security)"
-          ls -lah AuthKey.json
+          echo "✅ AuthKey.json created"
 
-      # --- Build IPA ---
+      # ---- Set up signing with match (certs & profiles) ----
+      - name: Set up keychain & fetch signing (match)
+        env:
+          MATCH_KEYCHAIN_NAME: build.keychain
+          MATCH_KEYCHAIN_PASSWORD: temp_password_123
+        run: |
+          set -e
+          fastlane run create_keychain \
+            name:"$MATCH_KEYCHAIN_NAME" \
+            password:"$MATCH_KEYCHAIN_PASSWORD" \
+            default_keychain:true \
+            unlock:true \
+            timeout:3600
+
+          # If your match repo requires Basic Auth, pass MATCH_GIT_BASIC_AUTHORIZATION
+          if [ -n "${MATCH_GIT_BASIC_AUTHORIZATION}" ]; then
+            export MATCH_GIT_BASIC_AUTHORIZATION="${MATCH_GIT_BASIC_AUTHORIZATION}"
+          fi
+
+          fastlane run match \
+            type:"appstore" \
+            app_identifier:"${IOS_BUNDLE_ID}" \
+            git_url:"${MATCH_GIT_URL}" \
+            readonly:true \
+            keychain_name:"$MATCH_KEYCHAIN_NAME" \
+            keychain_password:"$MATCH_KEYCHAIN_PASSWORD"
+
+      # ---- Build IPA with fastlane (gym) ----
       - name: Build IPA
         run: |
           set -e
-          echo "Using:"
-          echo "  IOS_BUNDLE_ID=${IOS_BUNDLE_ID}"
-          echo "  APPLE_TEAM_ID=${APPLE_TEAM_ID}"
           fastlane run build_app \
             scheme:"Runner" \
             workspace:"ios/Runner.xcworkspace" \
@@ -146,10 +165,9 @@ jobs:
             output_directory:"ios/build" \
             output_name:"BitTracker.ipa" \
             xcargs:"DEVELOPMENT_TEAM=${APPLE_TEAM_ID} PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID}"
-          echo "✅ Build complete"
           ls -lah ios/build
 
-      # --- Upload to TestFlight ---
+      # ---- Upload to TestFlight ----
       - name: Upload to TestFlight
         run: |
           set -e
@@ -159,7 +177,7 @@ jobs:
             distribute_external:false
           echo "✅ Upload to TestFlight initiated"
 
-      # --- Keep artifacts (IPA) ---
+      # ---- Keep artifacts (IPA) ----
       - name: Keep artifacts (IPA)
         if: always()
         uses: actions/upload-artifact@v4
@@ -170,5 +188,4 @@ jobs:
 
       - name: Debug • Finished
         if: always()
-        run: |
-          echo "🏁 Workflow finished (status may be success or failure above)."
+        run: echo "🏁 Workflow finished."
