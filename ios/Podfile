@@ -10,53 +10,42 @@ project 'Runner', {
 
 require 'fileutils'
 
-# -----------------------------
-# Ensure FLUTTER_ROOT is set FIRST
-# -----------------------------
+# Resolve Flutter SDK root from `flutter` on PATH and export FLUTTER_ROOT
 def resolve_flutter_root!
   flutter_bin = `which flutter`.strip
   if flutter_bin.empty?
     raise 'flutter not found on PATH; ensure CI sets up Flutter before pod install'
   end
   flutter_root = File.expand_path('..', File.dirname(flutter_bin))
-  ENV['FLUTTER_ROOT'] = flutter_root # make it available to podhelper.rb
-  return flutter_root
+  ENV['FLUTTER_ROOT'] = flutter_root
+  flutter_root
 end
 
 flutter_root = resolve_flutter_root!
 
-# -----------------------------
-# Load podhelper.rb (local first, then SDK copy)
-# -----------------------------
-local_podhelper = File.expand_path(File.join('Flutter', 'podhelper'), __dir__)
-sdk_podhelper   = File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
-
-if File.exist?("#{local_podhelper}.rb")
-  require local_podhelper
-else
-  unless File.exist?(sdk_podhelper)
-    raise "Could not find podhelper.rb at #{sdk_podhelper}"
-  end
-  # Best‑effort: copy to ios/Flutter for next runs
-  begin
-    flutter_dir = File.expand_path('Flutter', __dir__)
-    Dir.mkdir(flutter_dir) unless Dir.exist?(flutter_dir)
-    FileUtils.cp(sdk_podhelper, File.join(flutter_dir, 'podhelper.rb'))
-  rescue
-    # ignore copy errors
-  end
-  require sdk_podhelper.sub(/\.rb$/, '')
+# Always use the SDK copy of podhelper (skip local one to avoid env issues)
+sdk_podhelper = File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
+unless File.exist?(sdk_podhelper)
+  raise "Could not find podhelper.rb at #{sdk_podhelper}"
 end
 
-# -----------------------------
-# Standard Flutter CocoaPods setup
-# -----------------------------
+# Best‑effort: sync into ios/Flutter so Xcode/local devs still have it
+begin
+  flutter_dir = File.expand_path('Flutter', __dir__)
+  Dir.mkdir(flutter_dir) unless Dir.exist?(flutter_dir)
+  FileUtils.cp(sdk_podhelper, File.join(flutter_dir, 'podhelper.rb'))
+rescue
+  # ignore copy errors
+end
+
+require sdk_podhelper.sub(/\.rb$/, '')
+
+# ---- Standard Flutter CocoaPods setup ----
 flutter_ios_podfile_setup
 
 target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
-
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
