@@ -15,12 +15,15 @@ jobs:
     runs-on: macos-14
 
     env:
+      # Keep in sync with your local Flutter
       FLUTTER_VERSION: '3.35.1'
+
+      # App identifiers / Apple details (set as GitHub Action Secrets)
       IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}          # e.g. com.bitlogiq.bittracker
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}          # e.g. 1A2BC3D4EF
-      APPLE_ID_EMAIL: ${{ secrets.APPLE_ID_EMAIL }}        # Apple ID used with App Store Connect
+      APPLE_ID_EMAIL: ${{ secrets.APPLE_ID_EMAIL }}        # Apple ID linked to App Store Connect
 
-      # App Store Connect API key (store these as GitHub Action Secrets)
+      # App Store Connect API key (Secrets)
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
@@ -34,8 +37,25 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      - name: Flutter pub get
-        run: flutter pub get
+      # --- IMPORTANT: generate Flutter iOS tooling before Pods ---
+      - name: Precache iOS and fetch packages
+        run: |
+          flutter --version
+          flutter precache --ios
+          flutter pub get
+
+      # --- Safety net: ensure ios/Flutter/podhelper.rb exists ---
+      - name: Ensure podhelper.rb exists (fallback)
+        shell: bash
+        run: |
+          set -e
+          mkdir -p ios/Flutter
+          FLUTTER_BIN="$(which flutter)"
+          FLUTTER_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
+          if [ ! -f ios/Flutter/podhelper.rb ]; then
+            cp "$FLUTTER_ROOT/packages/flutter_tools/bin/podhelper.rb" ios/Flutter/podhelper.rb
+          fi
+          ls -lah ios/Flutter
 
       - name: Install Ruby + fastlane + cocoapods
         uses: ruby/setup-ruby@v1
@@ -64,8 +84,10 @@ jobs:
             "in_house": false
           }
           JSON
+          ls -lah AuthKey.json
 
-      - name: Build IPA (no Fastfile needed)
+      # Build IPA without needing a Fastfile
+      - name: Build IPA
         run: |
           fastlane run build_app \
             scheme:"Runner" \
@@ -91,4 +113,3 @@ jobs:
           name: ios-ipa
           path: ios/build/*.ipa
           if-no-files-found: warn
-
