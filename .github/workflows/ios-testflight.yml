@@ -14,18 +14,18 @@ jobs:
       TEAM_ID: ${{ secrets.TEAM_ID }}                                  # R4R4AW7JUQ
       APPLE_ID: ${{ secrets.APPLE_ID }}                                # roelofhorowitz@hotmail.com
 
-      # ASC API key
-      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}              # G3T7T7WP8A
-      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}        # issuer UUID
-      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}    # full .p8 contents
+      # App Store Connect API key (Users and Access → Keys)
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
 
-      # fastlane match (cert repo)
+      # fastlane match (certificates repo)
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                      # https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_GIT_BRANCH: master                                         # your cert repo branch
+      MATCH_GIT_BRANCH: master
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}                    # Superm@n007
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }} # Base64(username:PAT)
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
 
-      # 🔒 Make 100% sure match is NOT readonly
+      # Hard override
       MATCH_READONLY: "false"
 
     steps:
@@ -66,9 +66,37 @@ jobs:
           }
           JSON
 
+      - name: Debug env for match
+        run: |
+          echo "MATCH_READONLY=${MATCH_READONLY:-<unset>}"
+          echo "MATCH_GIT_URL=$MATCH_GIT_URL"
+          echo "MATCH_GIT_BRANCH=$MATCH_GIT_BRANCH"
+          echo "APP_IDENTIFIER=$APP_IDENTIFIER"
+          echo "TEAM_ID=$TEAM_ID"
+
+      # Patch Matchfile if it contains readonly(true)
+      - name: Clone cert repo and patch Matchfile (force non-readonly)
+        run: |
+          rm -rf certs_tmp
+          git -c http.extraheader="Authorization: Basic $MATCH_GIT_BASIC_AUTHORIZATION" clone --branch $MATCH_GIT_BRANCH "$MATCH_GIT_URL" certs_tmp
+          if [ -f certs_tmp/Matchfile ]; then
+            sed -i.bak 's/readonly\s*(\s*true\s*)/readonly(false)/' certs_tmp/Matchfile || true
+          fi
+          if [ -f certs_tmp/fastlane/Matchfile ]; then
+            sed -i.bak 's/readonly\s*(\s*true\s*)/readonly(false)/' certs_tmp/fastlane/Matchfile || true
+          fi
+          cd certs_tmp
+          if git status --porcelain | grep -q .; then
+            git config user.email "ci@users.noreply.github.com"
+            git config user.name "CI"
+            git add -A
+            git commit -m "CI: set match readonly(false)"
+            git -c http.extraheader="Authorization: Basic $MATCH_GIT_BASIC_AUTHORIZATION" push origin $MATCH_GIT_BRANCH
+          fi
+
       - name: Fastlane match (appstore, read-write)
         run: |
-          echo "Using cert repo: $MATCH_GIT_URL (branch: $MATCH_GIT_BRANCH)"
+          echo "Running fastlane match..."
           fastlane match appstore \
             --readonly false \
             --git_url "$MATCH_GIT_URL" \
