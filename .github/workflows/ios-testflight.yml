@@ -1,61 +1,46 @@
-name: iOS TestFlight
+name: Seed iOS Certs (one-off)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build-and-upload:
+  seed:
     runs-on: macos-14
     env:
-      # App / Apple IDs
-      APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}                    # za.co.bitlogiq.bittracker
-      TEAM_ID: ${{ secrets.TEAM_ID }}                                  # R4R4AW7JUQ
-      APPLE_ID: ${{ secrets.APPLE_ID }}                                # roelofhorowitz@hotmail.com
-
-      # App Store Connect API key (Users and Access → Keys)
-      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}              # G3T7T7WP8A
-      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}        # issuer UUID
-      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}    # full .p8 contents (BEGIN/END included)
-
-      # fastlane match (certificates repo)
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                      # https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_GIT_BRANCH: master                                         # your cert repo branch
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}                    # Superm@n007
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }} # Base64(username:token)
-
-      # 🔒 hard overrides for readonly
+      APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+      MATCH_GIT_BRANCH: main
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
       MATCH_READONLY: "false"
       FASTLANE_MATCH_READONLY: "false"
 
     steps:
-      - name: Checkout
+      - name: Checkout cert repo
         uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - name: Set up Ruby + fastlane
+        uses: ruby/setup-ruby@v1
         with:
-          channel: stable
-          flutter-version: 3.35.1
+          ruby-version: '3.2'
+      - run: gem install fastlane
 
-      - name: Flutter pub get
-        run: flutter pub get
-
-      - name: Precache iOS artifacts
-        run: flutter precache --ios
-
-      - name: Warm iOS build (profile, no codesign)
-        run: flutter build ios --profile --no-codesign
-
-      - name: Create CI keychain
+      - name: Create local fastlane/Matchfile (readonly false)
         run: |
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
+          mkdir -p fastlane
+          cat > fastlane/Matchfile <<'RUBY'
+          storage_mode("git")
+          type("appstore")
+          readonly(false)
+          RUBY
+          cat fastlane/Matchfile
 
-      - name: Write ASC API key (JSON) for fastlane
+      - name: Write ASC API key JSON
         run: |
           cat > AuthKey.json <<'JSON'
           {
@@ -67,55 +52,9 @@ jobs:
           }
           JSON
 
-      # Create a local Matchfile that forces readonly(false) (CLI will still supply git/url/etc.)
-      - name: Create local fastlane/Matchfile with readonly(false)
+      - name: Run fastlane match to CREATE certs/profiles (read-write)
         run: |
-          mkdir -p fastlane
-          cat > fastlane/Matchfile <<'RUBY'
-          storage_mode("git")
-          type("appstore")
-          readonly(false)
-          RUBY
-          echo "---- fastlane/Matchfile ----"
-          cat fastlane/Matchfile
-          echo "----------------------------"
-
-      # Show env so we can see if something is still injecting readonly
-      - name: Debug env for match
-        run: |
-          echo "MATCH_READONLY=${MATCH_READONLY:-<unset>}"
-          echo "FASTLANE_MATCH_READONLY=${FASTLANE_MATCH_READONLY:-<unset>}"
-          echo "MATCH_GIT_URL=$MATCH_GIT_URL"
-          echo "MATCH_GIT_BRANCH=$MATCH_GIT_BRANCH"
-          echo "APP_IDENTIFIER=$APP_IDENTIFIER"
-          echo "TEAM_ID=$TEAM_ID"
-
-      # Optional: patch readonly(true) inside cert repo's Matchfile(s), then push back
-      - name: Clone cert repo and patch Matchfile (force non-readonly)
-        run: |
-          rm -rf certs_tmp
-          git -c http.extraheader="Authorization: Basic $MATCH_GIT_BASIC_AUTHORIZATION" clone --branch $MATCH_GIT_BRANCH "$MATCH_GIT_URL" certs_tmp
-          if [ -f certs_tmp/Matchfile ]; then
-            sed -i.bak 's/readonly\s*(\s*true\s*)/readonly(false)/' certs_tmp/Matchfile || true
-          fi
-          if [ -f certs_tmp/fastlane/Matchfile ]; then
-            sed -i.bak 's/readonly\s*(\s*true\s*)/readonly(false)/' certs_tmp/fastlane/Matchfile || true
-          fi
-          cd certs_tmp
-          if git status --porcelain | grep -q .; then
-            git config user.email "ci@users.noreply.github.com"
-            git config user.name "CI"
-            git add -A
-            git commit -m "CI: set match readonly(false)"
-            git -c http.extraheader="Authorization: Basic $MATCH_GIT_BASIC_AUTHORIZATION" push origin $MATCH_GIT_BRANCH
-          fi
-
-      - name: Fastlane match (appstore, read-write)
-        run: |
-          echo "Running fastlane match (expect readonly=false)..."
-          # Ensure no stray env wins
-          unset MATCH_READONLY || true
-          unset FASTLANE_MATCH_READONLY || true
+          echo "Using $MATCH_GIT_URL on branch $MATCH_GIT_BRANCH"
           fastlane match appstore \
             --verbose \
             --readonly false \
@@ -126,29 +65,3 @@ jobs:
             --team_id "$TEAM_ID" \
             --username "$APPLE_ID" \
             --api_key_path ./AuthKey.json
-        env:
-          MATCH_GIT_URL: ${{ env.MATCH_GIT_URL }}
-          MATCH_GIT_BRANCH: ${{ env.MATCH_GIT_BRANCH }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ env.MATCH_GIT_BASIC_AUTHORIZATION }}
-          MATCH_PASSWORD: ${{ env.MATCH_PASSWORD }}
-          APP_IDENTIFIER: ${{ env.APP_IDENTIFIER }}
-          TEAM_ID: ${{ env.TEAM_ID }}
-          APPLE_ID: ${{ env.APPLE_ID }}
-
-      - name: Build IPA (app-store)
-        run: |
-          /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM $TEAM_ID" ios/Runner.xcodeproj/project.pbxproj || true
-          flutter build ipa --release --export-method app-store
-
-      - name: Write API key (.p8) to file
-        run: echo "${ASC_PRIVATE_KEY}" > ./AuthKey.p8
-
-      - name: Upload to TestFlight
-        run: |
-          gem install fastlane
-          fastlane pilot upload \
-            --api_key_path ./AuthKey.p8 \
-            --api_key_id $ASC_KEY_ID \
-            --api_key_issuer_id $ASC_ISSUER_ID \
-            --ipa "build/ios/ipa/Runner.ipa" \
-            --skip_waiting_for_build_processing true
