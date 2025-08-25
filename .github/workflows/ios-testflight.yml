@@ -16,8 +16,8 @@ jobs:
 
     env:
       FLUTTER_VERSION: '3.35.1'
-      IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      IOS_BUNDLE_ID: za.co.bitlogiq.bittracker
+      APPLE_TEAM_ID: R4R4AW7JUQ
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
@@ -34,8 +34,6 @@ jobs:
         run: |
           set -e
           fail=0
-          [ -z "${IOS_BUNDLE_ID}" ] && echo "::error ::IOS_BUNDLE_ID is missing" && fail=1
-          [ -z "${APPLE_TEAM_ID}" ] && echo "::error ::APPLE_TEAM_ID is missing" && fail=1
           [ -z "${ASC_KEY_ID}" ] && echo "::error ::APP_STORE_CONNECT_KEY_ID is missing" && fail=1
           [ -z "${ASC_ISSUER_ID}" ] && echo "::error ::APP_STORE_CONNECT_ISSUER_ID is missing" && fail=1
           [ -z "${ASC_PRIVATE_KEY_B64}" ] && echo "::error ::ASC_PRIVATE_KEY_B64 is missing (add base64 of your .p8 Apple API key)" && fail=1
