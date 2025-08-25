@@ -17,7 +17,7 @@ def ensure_podhelper!
     return
   end
 
-  # Try to resolve Flutter SDK root
+  # Resolve Flutter SDK root from `flutter` on PATH
   flutter_bin = `which flutter`.strip
   if flutter_bin.empty?
     raise 'flutter not found on PATH; ensure CI sets up Flutter before pod install'
@@ -29,13 +29,12 @@ def ensure_podhelper!
     raise "Could not find podhelper.rb at #{sdk_podhelper}"
   end
 
-  # Copy into ios/Flutter for future runs
+  # Copy into ios/Flutter for future runs (best-effort)
   flutter_dir = File.expand_path('Flutter', __dir__)
   Dir.mkdir(flutter_dir) unless Dir.exist?(flutter_dir)
   begin
     FileUtils.cp(sdk_podhelper, File.join(flutter_dir, 'podhelper.rb'))
   rescue
-    # don’t fail if copy didn’t work, just continue
   end
 
   require sdk_podhelper.sub(/\.rb$/, '')
@@ -55,9 +54,7 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |c|
-      # Recommended deployment target
       c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
-      # Fix simulator builds on Apple Silicon
       c.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
     end
   end
