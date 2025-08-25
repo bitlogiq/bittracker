@@ -7,11 +7,8 @@
         with:
           ruby-version: '3.2'
 
-      - name: Install fastlane (and optionally Cocoapods)
-        shell: bash
-        run: |
-          gem install fastlane
-          brew install cocoapods || true
+      - name: Install fastlane
+        run: gem install fastlane
 
       - name: Write ASC API key JSON
         shell: bash
@@ -30,27 +27,12 @@
                    };
                    File.write("AuthKey.json", JSON.generate(data))'
 
-      - name: Pull certs/profiles (readonly)
-        shell: bash
-        env:
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-        run: |
-          fastlane match appstore \
-            --readonly true \
-            --git_url "$MATCH_GIT_URL" \
-            --git_branch "$MATCH_GIT_BRANCH" \
-            --git_basic_authorization "${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}" \
-            --app_identifier "$APP_IDENTIFIER" \
-            --team_id "$TEAM_ID" \
-            --username "$APPLE_ID" \
-            --api_key_path ./AuthKey.json
-
-      # ---------- Flutter build ----------
+      # -------- Warm Flutter iOS build to generate Pods (NO direct `pod install`) --------
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          # flutter-version: "3.35.1"
+          # flutter-version: "3.35.1"   # optional pin
 
       - name: Flutter pub get
         run: flutter pub get
@@ -58,6 +40,35 @@
       - name: Precache iOS artifacts
         run: flutter precache --ios
 
+      - name: Ensure iOS folder exists
+        shell: bash
+        run: |
+          if [ ! -d ios ]; then
+            flutter create . --platforms ios
+          fi
+
+      - name: Warm iOS build (generates Pods)
+        env:
+          CI: "true"
+        run: flutter build ios --profile --no-codesign
+
+      # -------- Pull certs/profiles (readonly) --------
+      - name: Pull certs/profiles (readonly)
+        shell: bash
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+        run: |
+          fastlane match appstore \
+            --readonly true \
+            --git_url "https://github.com/bitlogiq/ios-cert-store.git" \
+            --git_branch "main" \
+            --git_basic_authorization "${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}" \
+            --app_identifier "${{ secrets.APP_IDENTIFIER }}" \
+            --team_id "${{ secrets.TEAM_ID }}" \
+            --username "${{ secrets.APPLE_ID }}" \
+            --api_key_path ./AuthKey.json
+
+      # -------- Final IPA build & upload --------
       - name: Build IPA (App Store)
         env:
           CI: "true"
@@ -66,7 +77,6 @@
           /usr/libexec/PlistBuddy -c "Set :DEVELOPMENT_TEAM $TEAM_ID" ios/Runner.xcodeproj/project.pbxproj || true
           flutter build ipa --release --export-method app-store
 
-      # ---------- Upload to TestFlight ----------
       - name: Upload to TestFlight
         shell: bash
         run: |
