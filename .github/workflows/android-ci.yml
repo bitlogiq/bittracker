@@ -1,0 +1,44 @@
+name: Android CI (Flutter → AAB/APK)
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - "android/**"
+      - "lib/**"
+      - "pubspec.yaml"
+      - ".github/workflows/android-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    env:
+      FLUTTER_VERSION: '3.35.1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build AAB
+        run: flutter build appbundle --release
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-artifacts
+          path: |
+            build/app/outputs/**/*.aab
+            build/app/outputs/**/*.apk
+          if-no-files-found: warn
