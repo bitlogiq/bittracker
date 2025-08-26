@@ -1,7 +1,13 @@
-# fastlane/Matchfile - minimal, most config comes from env/Fastfile
-storage_mode("git")
+# fastlane/Matchfile
+
+git_url(ENV['MATCH_GIT_URL'])                     # e.g. https://github.com/<org>/<repo>.git  (NO trailing slash)
+git_basic_authorization(ENV['MATCH_GIT_BASIC_AUTHORIZATION'])  # Base64("x-access-token:<PAT>")
+
 type("appstore")
-git_url(ENV["MATCH_GIT_URL"])
-team_id(ENV["TEAM_ID"])
-# If your match repo branch is 'main', uncomment the following:
-# git_branch("main")
+app_identifier(["za.co.bitlogiq.bittracker"])
+team_id(ENV['TEAM_ID'])
+
+storage_mode("git")
+git_branch("master")
+shallow_clone(false)
+clone_branch_directly(false)
