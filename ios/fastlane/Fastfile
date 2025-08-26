@@ -1,64 +1,58 @@
-# fastlane/Fastfile (iOS)
-# Non-interactive CI lane to build and upload to TestFlight
-
 default_platform(:ios)
 
 platform :ios do
   desc "CI lane to build and upload to TestFlight"
   lane :ci do
-    # --- Temporary CI keychain (idempotent) ---
+    # --- Temporary CI keychain ---
     create_keychain(
       name: "ci_tmp",
       default_keychain: true,
       unlock: true,
-      timeout: 3600,
       password: "temp_password_123",
-      add_to_search_list: true
+      timeout: 3600,
+      lock_when_sleeps: false,
+      add_to_search_list: true,
+      require_create: false
     )
 
-    # --- App Store Connect API key: read base64 content directly from env ---
-    # ASC_KEY_P8 must be the BASE64 of the raw .p8 file (no headers)
+    # --- App Store Connect API key (read raw content from file written by workflow) ---
     api_key = app_store_connect_api_key(
-      key_id:                 ENV['ASC_KEY_ID'],
-      issuer_id:              ENV['ASC_ISSUER_ID'],
-      key_content:            ENV['ASC_KEY_P8'],
-      is_key_content_base64:  true,
-      in_house:               false
+      key_id:     ENV['ASC_KEY_ID'],
+      issuer_id:  ENV['ASC_ISSUER_ID'],
+      key_content: File.read(ENV['APP_STORE_CONNECT_API_KEY_PATH'])
     )
 
     # --- Code signing: fetch certs/profiles from your match repo ---
     match(
       type: "appstore",
       readonly: false,
-      app_identifier: [ENV['APP_IDENTIFIER']],
-      git_url: ENV['MATCH_GIT_URL'],
-      git_basic_authorization: ENV['MATCH_GIT_BASIC_AUTHORIZATION'],
+      app_identifier: ["za.co.bitlogiq.bittracker"],
+      git_url: ENV["MATCH_GIT_URL"],                                # ensure no trailing slash in the secret
+      git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"],# Base64("x-access-token:<PAT>")
       keychain_name: "ci_tmp",
       keychain_password: "temp_password_123",
       api_key: api_key,
-      team_id: ENV['TEAM_ID'],
-      # Set this to "main" if your cert repo uses main (change if needed)
-      git_branch: "main"
+      team_id: ENV["TEAM_ID"]
     )
 
-    # --- Build IPA ---
+    # --- Build the app (Flutter iOS uses scheme Runner) ---
     build_app(
       scheme: "Runner",
       configuration: "Release",
       export_method: "app-store",
-      clean: true,
-      output_directory: "build",
-      output_name: "BitTracker.ipa",
-      xcargs: "DEVELOPMENT_TEAM=#{ENV['TEAM_ID']} -allowProvisioningUpdates"
+      xcargs: "DEVELOPMENT_TEAM=#{ENV['TEAM_ID']} -allowProvisioningUpdates",
+      output_directory: "ios/build",
+      output_name: "BitTracker.ipa"
     )
 
-    # --- Upload to TestFlight ---
+    # --- Upload to TestFlight using the same API key ---
     upload_to_testflight(
       api_key: api_key,
       skip_submission: true,
       skip_waiting_for_build_processing: true
     )
   ensure
+    # Always clean up the temp keychain
     delete_keychain(name: "ci_tmp")
   end
 end
