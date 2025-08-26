@@ -1,3 +1,7 @@
-git_url(ENV['MATCH_GIT_URL'])
+# fastlane/Matchfile - minimal, most config comes from env/Fastfile
 storage_mode("git")
 type("appstore")
+git_url(ENV["MATCH_GIT_URL"])
+team_id(ENV["TEAM_ID"])
+# If your match repo branch is 'main', uncomment the following:
+# git_branch("main")
