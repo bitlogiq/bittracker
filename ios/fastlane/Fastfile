@@ -13,7 +13,7 @@ platform :ios do
       in_house: false
     )
 
-    # Read ONLY base64(username:token) from workflow (defensive strip if someone added 'Basic ')
+    # Read ONLY base64(username:token) from workflow (strip any accidental 'Basic ')
     basicauth_b64 = (ENV["MATCH_GIT_BASIC_AUTH_B64"] || "").sub(/^Basic\s+/i, "")
     if basicauth_b64.empty?
       UI.crash!("MATCH_GIT_BASIC_AUTH_B64 is empty. Check workflow step that sets it.")
