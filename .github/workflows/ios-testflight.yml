@@ -1,70 +1,69 @@
-name: iOS TestFlight
+name: iOS Build & TestFlight
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    tags:
+      - 'ios-v*'     # e.g. ios-v1.2.3 — push a tag to trigger
 
 jobs:
-  ios:
-    runs-on: macos-14
+  build:
+    runs-on: macos-14  # Xcode 15.4 on Apple Silicon
 
     env:
-      LANG: en_US.UTF-8
-      LC_ALL: en_US.UTF-8
-      # App + signing info (set these in GitHub Secrets)
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}  # PEM content, not base64
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
-      APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
+      # Fastlane/Match inputs (add these as GitHub Secrets)
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}               # e.g. https://<token>@github.com/you/certs.git
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}             # the match encryption password
+
+      # App Store Connect API key (recommended for TestFlight upload)
+      ASC_KEY_ID:        ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID:     ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}              # entire contents of the .p8 file
+
+      # (Optional) if your Fastfile reads these:
+      APP_IDENTIFIER: za.co.bitlogiq.bittracker
+      TEAM_ID: R4R4AW7JUQ
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Set up Ruby (uses your Gemfile)
+        uses: ruby/setup-ruby@v1
         with:
-          flutter-version: '3.35.1'
-          channel: 'stable'
-          cache: true
+          ruby-version: 3.2
+          bundler-cache: true
 
-      - name: Flutter pub get
-        run: flutter pub get
-
-      # --- CocoaPods setup ---
-      - name: Install CocoaPods
+      - name: Create App Store Connect API key file
         run: |
-          sudo gem install cocoapods -N
-          pod --version
+          cat > appstore_connect_api_key.json <<'JSON'
+          {
+            "key_id": "${ASC_KEY_ID}",
+            "issuer_id": "${ASC_ISSUER_ID}",
+            "key": "${ASC_KEY_P8}"
+          }
+          JSON
+          echo "APP_STORE_CONNECT_API_KEY_PATH=$PWD/appstore_connect_api_key.json" >> $GITHUB_ENV
 
-      - name: Pod install
-        working-directory: ios
-        run: pod install --repo-update
-
-      - name: Cache Pods
+      - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
           path: |
             ios/Pods
-            ios/Podfile.lock
+            ~/Library/Caches/CocoaPods
+            ~/.cocoapods
           key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
           restore-keys: |
             ${{ runner.os }}-pods-
 
-      # --- Fastlane ---
-      - name: Install fastlane
-        run: sudo gem install fastlane -N
-
-      - name: Build & upload to TestFlight
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
-          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      - name: Install CocoaPods (from Gemfile if present)
+        working-directory: ios
         run: |
-          cd ios
-          fastlane ci
+          bundle exec pod install --verbose
+
+      - name: Build & Upload via Fastlane
+        run: |
+          bundle exec fastlane ios ci
