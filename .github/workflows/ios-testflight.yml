@@ -18,10 +18,13 @@ jobs:
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
 
-      # match via SSH deploy key (NO basic auth)
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                 # e.g. git@github.com:bitlogiq/ios-cert-store.git
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}               # match encryption password
-      MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }} # entire private key text (no passphrase)
+      # match via HTTPS + PAT
+      MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+
+      # Build the Basic header on the runner (avoids formatting mistakes)
+      MATCH_GIT_USERNAME: ${{ secrets.MATCH_GIT_USERNAME }}  # your GitHub username
+      MATCH_GIT_PAT:      ${{ secrets.MATCH_GIT_PAT }}       # PAT with repo:read (or repo) scope
 
       # CI hygiene
       CI: "true"
@@ -68,35 +71,25 @@ jobs:
           bundle exec pod repo update
           bundle exec pod install
 
-      # 🔐 Write private key and FORCE git to use it (no ssh-agent ambiguity)
-      - name: Configure SSH for cert repo (force key)
-        env:
-          MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
+      # Build the "Basic base64(username:token)" header safely
+      - name: Build Basic auth header for match
+        id: basicauth
+        shell: bash
         run: |
-          mkdir -p ~/.ssh
-          echo "$MATCH_GIT_PRIVATE_KEY" > ~/.ssh/match_key
-          # Normalize line endings just in case
-          tr -d '\r' < ~/.ssh/match_key > ~/.ssh/match_key.clean && mv ~/.ssh/match_key.clean ~/.ssh/match_key
-          chmod 600 ~/.ssh/match_key
-          # Trust GitHub host key
-          ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
-          # Quick check (may exit non-zero; that's fine)
-          ssh -i ~/.ssh/match_key -o IdentitiesOnly=yes -T git@github.com || true
+          header=$(printf "%s:%s" "$MATCH_GIT_USERNAME" "$MATCH_GIT_PAT" | base64)
+          echo "header=Basic $header" >> "$GITHUB_OUTPUT"
 
       - name: Debug layout
         run: |
+          echo "Using HTTPS + Basic auth to clone cert repo"
           echo "MATCH_GIT_URL=${MATCH_GIT_URL}"
-          echo "Should be SSH (git@github.com:...)"
           ls -la ios/fastlane || true
-          test -f ios/Gemfile && echo "Gemfile present in ios/"
 
-      # Run FROM ios/ with Bundler; force git to use our key
       - name: Build & upload to TestFlight
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
-          GIT_SSH_COMMAND: "ssh -i ~/.ssh/match_key -o IdentitiesOnly=yes"
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ steps.basicauth.outputs.header }}
         run: bundle exec fastlane ios beta
 
       - name: Archive artifacts (ipa, logs)
