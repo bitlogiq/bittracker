@@ -24,7 +24,6 @@ jobs:
       IOS_P12_B64: ${{ secrets.IOS_P12_B64 }}
       IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
       IOS_MOBILEPROVISION_B64: ${{ secrets.IOS_MOBILEPROVISION_B64 }}
-      NSUnbufferedIO: "YES"  # flush xcodebuild logs inline
 
     steps:
       - name: Checkout repository
@@ -45,20 +44,18 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      - name: Flutter precache & pub get (ensures ios/Flutter/Generated.xcconfig)
+      - name: Flutter precache & pub get
         shell: bash
         run: |
-          flutter --version
           flutter precache --ios
           flutter pub get
-          test -f ios/Flutter/Generated.xcconfig && echo "✅ Generated.xcconfig present" || (echo "::error ::Generated.xcconfig missing" && exit 1)
 
-      - name: Install Ruby
+      - name: Install Ruby + fastlane + cocoapods
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
 
-      - name: Install fastlane & cocoapods
+      - name: Install gems
         shell: bash
         run: |
           gem install --no-document fastlane -v ">=2.222"
@@ -66,31 +63,16 @@ jobs:
           pod --version
           fastlane --version
 
-      - name: CocoaPods install
+      - name: Pod install (in ios/)
         working-directory: ios
         shell: bash
         run: |
           pod repo update
           pod install
-          test -d Runner.xcworkspace && echo "✅ xcworkspace present" || (echo "::error ::Runner.xcworkspace not created" && exit 1)
+          test -f Podfile.lock && echo "✅ Podfile.lock present"
 
-      - name: Ensure Podfile.lock exists
-        working-directory: ios
-        shell: bash
-        run: |
-          if [ ! -f Podfile.lock ]; then
-            echo "⚠️ Podfile.lock missing — running pod install to generate it"
-            pod install
-          fi
-          if [ ! -f Podfile.lock ] && [ -f Pods/Manifest.lock ]; then
-            echo "ℹ️ Copying Pods/Manifest.lock -> Podfile.lock"
-            cp Pods/Manifest.lock Podfile.lock
-          fi
-          test -f Podfile.lock || (echo "::error ::Podfile.lock still missing after pod install"; exit 1)
-          echo "✅ Podfile.lock present"
-
-      # --- Decode secrets to files (works on both GNU and macOS base64) ---
-      - name: Decode signing & ASC key
+      # --- Decode secrets to files ---
+      - name: Decode signing & ASC key (robust)
         shell: bash
         run: |
           set -e
@@ -103,61 +85,62 @@ jobs:
           {"key_id":"$ASC_KEY_ID","issuer_id":"$ASC_ISSUER_ID","key":"$KEY_ESCAPED","duration":1200,"in_house":false}
           JSON
 
-      - name: Verify p12 password
+      - name: Check decoded p12 checksum
+        shell: bash
+        run: shasum -a 256 dist.p12
+
+      - name: Verify p12 password (sanity check)
         shell: bash
         run: |
           set -e
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nokeys -clcerts -info >/dev/null
           echo "✅ p12 password OK"
 
-      - name: Install signing cert & provisioning profile (robust)
+      - name: Install signing via PEM
         shell: bash
         run: |
           set -e
           KEYCHAIN=build.keychain
           PW=ci_temp_123
-
           security create-keychain -p "$PW" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$PW" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN"
 
-          if ! openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nokeys -clcerts -info >/dev/null 2>&1; then
-            echo "::error ::OpenSSL could not read the P12 with the provided password. Check IOS_P12_PASSWORD and base64 content."
-            exit 1
-          fi
+          openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -clcerts -nokeys -out dist_cert.pem
+          openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nocerts -nodes -out dist_key.pem
 
-          if security import dist.p12 -k "$KEYCHAIN" -P "$IOS_P12_PASSWORD" -A -T /usr/bin/codesign >/dev/null 2>&1; then
-            echo "✅ Imported P12 with provided password"
-          elif security import dist.p12 -k "$KEYCHAIN" -P "" -A -T /usr/bin/codesign >/dev/null 2>&1; then
-            echo "✅ Imported P12 with empty password"
-          else
-            echo "🧰 Fallback: split-import via PEM"
-            openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -clcerts -nokeys -out dist_cert.pem
-            openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nocerts -nodes -out dist_key.pem
-            security import dist_cert.pem -k "$KEYCHAIN" -A -T /usr/bin/codesign
-            security import dist_key.pem  -k "$KEYCHAIN" -A -T /usr/bin/codesign
-          fi
-
+          security import dist_cert.pem -k "$KEYCHAIN" -A -T /usr/bin/codesign
+          security import dist_key.pem  -k "$KEYCHAIN" -A -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KEYCHAIN"
-          security find-identity -v -p codesigning "$KEYCHAIN" || true
 
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          PLIST=$(/usr/bin/security cms -D -i app.mobileprovision)
-          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PLIST")
-          NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PLIST")
-          NAME_CLEAN="${NAME%.mobileprovision}"
+          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$(/usr/bin/security cms -D -i app.mobileprovision)")
+          NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$(/usr/bin/security cms -D -i app.mobileprovision)")
           cp app.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
-          echo "PROFILE_UUID=$UUID"       >> $GITHUB_ENV
-          echo "PROFILE_NAME=$NAME_CLEAN" >> $GITHUB_ENV
-          echo "✅ Installed profile: $NAME_CLEAN ($UUID)"
+          echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
+          echo "PROFILE_NAME=$NAME" >> $GITHUB_ENV
+          echo "✅ Installed profile: $NAME ($UUID)"
 
-      - name: Print effective signing settings (pre-build)
+      - name: Debug • Identities present
+        shell: bash
+        run: security find-identity -v -p codesigning build.keychain || true
+
+      - name: Debug • Profile vs secrets
         shell: bash
         run: |
-          xcodebuild -showBuildSettings -workspace ios/Runner.xcworkspace -scheme Runner | egrep "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN|DEVELOPMENT_TEAM|PROVISIONING_PROFILE" || true
+          set -e
+          PLIST=$(/usr/bin/security cms -D -i app.mobileprovision)
+          TEAM_FROM_PROFILE=$(echo "$PLIST" | /usr/libexec/PlistBuddy -c 'Print :ApplicationIdentifierPrefix:0' /dev/stdin)
+          APPID_FROM_PROFILE=$(echo "$PLIST" | /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin)
+          BUNDLE_FROM_PROFILE=${APPID_FROM_PROFILE#*.}
+          echo "Profile Team:      $TEAM_FROM_PROFILE"
+          echo "Profile AppID:     $APPID_FROM_PROFILE"
+          echo "Profile BundleID:  $BUNDLE_FROM_PROFILE"
+          echo "Secrets Team:      ${APPLE_TEAM_ID}"
+          echo "Secrets BundleID:  ${IOS_BUNDLE_ID}"
 
-      - name: Create exportOptions.plist
+      - name: Create exportOptions.plist (XML)
         shell: bash
         run: |
           cat > exportOptions.plist <<PLIST
@@ -184,8 +167,8 @@ jobs:
             xcodeproj:"ios/Runner.xcodeproj" \
             build_number:"${GITHUB_RUN_NUMBER}"
 
-      # Show raw xcodebuild output to surface exact failures
-      - name: Build IPA (Manual signing + force Distribution identity)
+      # --- Build IPA (force Podfile path + manual signing) ---
+      - name: Build IPA
         shell: bash
         run: |
           set -e
@@ -198,8 +181,7 @@ jobs:
             include_bitcode:false \
             output_directory:"ios/build" \
             output_name:"BitTracker.ipa" \
-            xcodebuild_formatter:"" \
-            xcargs:"ONLY_ACTIVE_ARCH=NO PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID} CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=Apple\ Distribution PROVISIONING_PROFILE_SPECIFIER=${PROFILE_UUID} PROVISIONING_PROFILE=${PROFILE_UUID} OTHER_CODE_SIGN_FLAGS=--keychain\ build.keychain" \
+            xcargs:"ONLY_ACTIVE_ARCH=NO PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID} CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=Apple\ Distribution PROVISIONING_PROFILE_SPECIFIER=${PROFILE_UUID} PROVISIONING_PROFILE=${PROFILE_UUID} OTHER_CODE_SIGN_FLAGS=--keychain\ build.keychain PODS_PODFILE_DIR_PATH=\$(SRCROOT)" \
             export_options:"exportOptions.plist"
 
           ls -la ios/build || true
@@ -213,18 +195,18 @@ jobs:
             distribute_external:false
           echo "✅ Upload to TestFlight initiated"
 
-      - name: Debug • Tail xcodebuild/gym log
+      - name: Debug • Tail xcodebuild log
         if: failure()
         shell: bash
         run: |
-          LOG="$HOME/Library/Logs/gym/Runner-Runner.log"
-          echo "---- last 300 lines of gym log ----"
+          LOG="/Users/runner/Library/Logs/gym/Runner-Runner.log"
           if [ -f "$LOG" ]; then
-            tail -n 300 "$LOG" || true
+            echo "---- tail of $LOG ----"
+            tail -n 200 "$LOG"
+            echo "----------------------"
           else
             echo "No gym log found at $LOG"
           fi
-          echo "-----------------------------------"
 
       - name: Upload IPA & logs
         if: always()
@@ -233,5 +215,5 @@ jobs:
           name: ios-artifacts
           path: |
             ios/build/**/*.ipa
-            $HOME/Library/Logs/gym/**
+            /Users/runner/Library/Logs/gym/**
           if-no-files-found: warn
