@@ -71,17 +71,10 @@ jobs:
         shell: bash
         run: |
           set -e
-          # p12 (strip CR/LF from secret; prefer macOS -D, fallback to -d)
           (echo "$IOS_P12_B64" | tr -d '\n\r' | base64 -D > dist.p12) || (echo "$IOS_P12_B64" | base64 -d > dist.p12)
-          # mobileprovision
           (echo "$IOS_MOBILEPROVISION_B64" | tr -d '\n\r' | base64 -D > app.mobileprovision) || (echo "$IOS_MOBILEPROVISION_B64" | base64 -d > app.mobileprovision)
-          # App Store Connect .p8
           (echo "$ASC_PRIVATE_KEY_B64" | tr -d '\n\r' | base64 -D > AuthKey.p8) || (echo "$ASC_PRIVATE_KEY_B64" | base64 -d > AuthKey.p8)
-
-          echo "Sizes:"
-          ls -lah dist.p12 app.mobileprovision AuthKey.p8
-
-          # Build AuthKey.json for fastlane (ES256 key)
+          echo "Sizes:"; ls -lah dist.p12 app.mobileprovision AuthKey.p8
           KEY_ESCAPED=$(awk '{gsub(/"/,"\\\""); printf "%s\\n",$0}' AuthKey.p8)
           cat > AuthKey.json <<JSON
           {"key_id":"$ASC_KEY_ID","issuer_id":"$ASC_ISSUER_ID","key":"$KEY_ESCAPED","duration":1200,"in_house":false}
@@ -89,10 +82,9 @@ jobs:
 
       - name: Check decoded p12 checksum
         shell: bash
-        run: |
-          shasum -a 256 dist.p12
+        run: shasum -a 256 dist.p12
 
-      # --- Sanity: verify p12 password before importing ---
+      # --- Prove the password BEFORE we touch the keychain ---
       - name: Verify p12 password (sanity check)
         shell: bash
         run: |
@@ -100,8 +92,8 @@ jobs:
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nokeys -clcerts -info >/dev/null
           echo "✅ p12 password OK"
 
-      # --- Install cert & provisioning profile into keychain ---
-      - name: Install signing into temporary keychain
+      # --- Create temp keychain & import cert/key (not the .p12 directly) ---
+      - name: Install signing via PEM (workaround for PKCS#12 MAC issues)
         shell: bash
         run: |
           set -e
@@ -111,9 +103,19 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$PW" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN"
-          security import dist.p12 -k "$KEYCHAIN" -P "$IOS_P12_PASSWORD" -A -T /usr/bin/codesign
+
+          # 1) extract cert and key from p12 using your password
+          openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -clcerts -nokeys -out dist_cert.pem
+          openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nocerts -nodes -out dist_key.pem
+
+          # 2) import cert + key separately
+          security import dist_cert.pem -k "$KEYCHAIN" -A -T /usr/bin/codesign
+          security import dist_key.pem  -k "$KEYCHAIN" -A -T /usr/bin/codesign
+
+          # 3) allow codesign access
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KEYCHAIN"
 
+          # 4) install provisioning profile
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$(/usr/bin/security cms -D -i app.mobileprovision)")
           NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$(/usr/bin/security cms -D -i app.mobileprovision)")
@@ -124,8 +126,7 @@ jobs:
 
       - name: Show code signing identities
         shell: bash
-        run: |
-          security find-identity -v -p codesigning build.keychain || true
+        run: security find-identity -v -p codesigning build.keychain || true
 
       - name: Bump build number
         run: |
@@ -133,7 +134,6 @@ jobs:
             xcodeproj:"ios/Runner.xcodeproj" \
             build_number:"${GITHUB_RUN_NUMBER}"
 
-      # --- Build IPA (manual signing hints) ---
       - name: Build IPA
         shell: bash
         run: |
@@ -164,7 +164,6 @@ jobs:
 
           ls -la ios/build
 
-      # --- Upload to TestFlight using API key JSON ---
       - name: Upload to TestFlight
         run: |
           fastlane run upload_to_testflight \
@@ -173,13 +172,18 @@ jobs:
             distribute_external:false
           echo "✅ Upload to TestFlight initiated"
 
+      - name: Debug • What did we build?
+        if: always()
+        run: |
+          echo "== ios/build =="; ls -lah ios/build || true
+          echo "== Logs =="; ls -lah /Users/runner/Library/Logs/gym || true
+
       - name: Upload IPA & logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-artifacts
           path: |
-            ios/build/*.ipa
-            $HOME/Library/Logs/gym
-            ~/Library/Developer/Xcode/DerivedData
+            ios/build/**/*.ipa
+            /Users/runner/Library/Logs/gym/**
           if-no-files-found: warn
