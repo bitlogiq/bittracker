@@ -7,10 +7,10 @@ on:
 
 jobs:
   ios-testflight:
-    runs-on: macos-latest
+    runs-on: macos-14
     defaults:
       run:
-        shell: bash  # ← was "bash -eo pipefail" (invalid)
+        shell: bash
 
     env:
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
@@ -24,7 +24,6 @@ jobs:
       ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}
 
       APP_STORE_CONNECT_API_KEY_PATH: ${{ github.workspace }}/appstore_connect_api_key.json
-
       # Use root Gemfile even when we cd into ios/
       BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
 
@@ -36,6 +35,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
 
       - name: Flutter packages
         run: |
@@ -54,15 +54,24 @@ jobs:
           set -euo pipefail
           bundle install --jobs 4 --retry 3
 
-      - name: Prepare App Store Connect API key file
+      - name: Prepare App Store Connect API key file (JSON)
         run: |
           set -euo pipefail
-          # Try base64 decode first, fall back to raw text
-          if echo "$ASC_KEY_P8" | base64 --decode > "$APP_STORE_CONNECT_API_KEY_PATH" 2>/dev/null; then
-            true
+          # If the secret is base64, decode it; else use as-is
+          if echo "$ASC_KEY_P8" | grep -q "BEGIN PRIVATE KEY"; then
+            KEY_CONTENT="$ASC_KEY_P8"
           else
-            echo "$ASC_KEY_P8" > "$APP_STORE_CONNECT_API_KEY_PATH"
+            KEY_CONTENT="$(echo "$ASC_KEY_P8" | base64 --decode)"
           fi
+
+          cat > "$APP_STORE_CONNECT_API_KEY_PATH" <<JSON
+          {
+            "key_id":   "${ASC_KEY_ID}",
+            "issuer_id":"${ASC_ISSUER_ID}",
+            "key":      "${KEY_CONTENT}",
+            "in_house": false
+          }
+          JSON
 
       - name: CocoaPods (install)
         working-directory: ios
@@ -80,9 +89,10 @@ jobs:
           gem env
 
       - name: Build & upload with fastlane
+        working-directory: ios   # ← IMPORTANT: run fastlane where the Fastfile is
         run: |
           set -euo pipefail
-          bundle exec fastlane ios ci
+          bundle exec fastlane ci
 
       - name: Archive artifacts (ipa, logs)
         if: always()
