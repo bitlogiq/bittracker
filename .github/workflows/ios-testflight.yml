@@ -1,155 +1,142 @@
-name: iOS TestFlight
+name: iOS TestFlight (Build only)
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main, master ]
-    paths:
-      - "ios/**"
-      - "lib/**"
-      - "pubspec.yaml"
-      - ".github/workflows/ios-testflight.yml"
-  workflow_dispatch:
 
 jobs:
-  build:
+  build-ios:
     runs-on: macos-14
 
     env:
       FLUTTER_VERSION: "3.35.1"
+
+      # Provided via GitHub Secrets
       IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
       IOS_P12_B64: ${{ secrets.IOS_P12_B64 }}
       IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
       IOS_MOBILEPROVISION_B64: ${{ secrets.IOS_MOBILEPROVISION_B64 }}
-      IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+      PROFILE_UUID: ${{ secrets.PROFILE_UUID }}
+      PROFILE_NAME: ${{ secrets.PROFILE_NAME }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Validate required secrets
-        run: |
-          set -e
-          fail=0
-          for v in IOS_BUNDLE_ID APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64 IOS_P12_B64 IOS_P12_PASSWORD IOS_MOBILEPROVISION_B64 IOS_KEYCHAIN_PASSWORD; do
-            if [ -z "${!v}" ]; then echo "::error ::Missing secret: $v"; fail=1; fi
-          done
-          [ "$fail" -ne 0 ] && exit 1 || echo "✅ Secrets present"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
 
-      - name: Flutter precache & pub get
-        run: |
-          flutter precache --ios
-          flutter pub get
+      - name: Flutter pub get
+        run: flutter pub get
 
-      - name: Install Ruby + fastlane + cocoapods
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.2"
-
-      - name: Install gems
-        run: |
-          gem install --no-document fastlane -v ">=2.222"
-          gem install --no-document cocoapods -v "~>1.15"
-
-      - name: CocoaPods install
-        working-directory: ios
-        run: |
-          pod repo update
-          pod install
-
-      # --- Decode & install provisioning profile ---
-      - name: Install provisioning profile
-        run: |
-          echo "$IOS_MOBILEPROVISION_B64" | base64 --decode > app.mobileprovision
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$(/usr/bin/security cms -D -i app.mobileprovision)")
-          cp app.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
-          echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
-
-      # --- Create keychain and import cert robustly ---
+      # ----- KEYCHAIN + CERT -----
       - name: Create keychain and import cert
         shell: bash
         run: |
-          set -euo pipefail
-          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" build.keychain
-          security list-keychains -d user -s build.keychain login.keychain
-          security default-keychain -s build.keychain
+          set -e
+          KEYCHAIN=build.keychain
+          security create-keychain -p "" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed s/\"//g)
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
 
-          python3 - <<'PY'
-import base64, os
-b64 = os.environ["IOS_P12_B64"].strip()
-open("ios_dist.p12","wb").write(base64.b64decode(b64))
-PY
+          # decode .p12
+          echo "$IOS_P12_B64" | base64 --decode > dist.p12
 
-          security import ios_dist.p12 -k build.keychain -P "$IOS_P12_PASSWORD" -A \
-            -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild -T /usr/bin/xcodebuild
+          # import .p12
+          security import dist.p12 -k "$KEYCHAIN" -P "$IOS_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
 
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$IOS_KEYCHAIN_PASSWORD" build.keychain
-          security find-identity -v -p codesigning || true
-
-      # --- AuthKey for TestFlight upload ---
-      - name: Decode App Store Connect key
+      # ----- PROVISIONING PROFILE -----
+      - name: Install provisioning profile
+        shell: bash
         run: |
-          echo "$ASC_PRIVATE_KEY_B64" | base64 --decode > AuthKey.p8
-          KEY_ESCAPED=$(awk '{gsub(/"/,"\\\""); printf "%s\\n",$0}' AuthKey.p8)
-          cat > AuthKey.json <<JSON
-          {"key_id":"$ASC_KEY_ID","issuer_id":"$ASC_ISSUER_ID","key":"$KEY_ESCAPED","duration":1200,"in_house":false}
-          JSON
+          set -e
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$IOS_MOBILEPROVISION_B64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
 
+      # ----- COCOAPODS -----
+      - name: CocoaPods install
+        shell: bash
+        run: |
+          set -e
+          sudo gem install cocoapods -N
+          cd ios
+          pod repo update
+          pod install
+          ls -la Podfile Podfile.lock Pods/Manifest.lock
+
+      # ----- exportOptions.plist -----
       - name: Create exportOptions.plist
+        shell: bash
         run: |
-          cat > exportOptions.plist <<PLIST
+          cat > exportOptions.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
             <dict>
-              <key>method</key>
-              <string>app-store</string>
-              <key>provisioningProfiles</key>
-              <dict>
-                <key>${IOS_BUNDLE_ID}</key>
-                <string>BitTracker_AppStore</string>
-              </dict>
+              <key>${IOS_BUNDLE_ID}</key>
+              <string>${PROFILE_NAME}</string>
             </dict>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>compileBitcode</key>
+            <false/>
+            <key>destination</key>
+            <string>export</string>
+          </dict>
           </plist>
           PLIST
+          echo "Wrote exportOptions.plist:"
+          cat exportOptions.plist
 
-      - name: Build IPA
+      # ----- BUILD (Fastlane gym) -----
+      - name: Build (Fastlane gym)
+        shell: bash
         run: |
-          bundle exec fastlane run build_app \
+          set -e
+          # Optional: print Xcode version
+          xcodebuild -version
+
+          fastlane run build_app \
             workspace:"ios/Runner.xcworkspace" \
             scheme:"Runner" \
-            export_method:"app-store" \
+            configuration:"Release" \
             clean:true \
-            include_bitcode:false \
+            export_method:"app-store" \
             output_directory:"ios/build" \
             output_name:"BitTracker.ipa" \
-            xcargs:"PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID}" \
+            xcargs:"ONLY_ACTIVE_ARCH=NO PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID} CODE_SIGN_STYLE=Manual PODS_PODFILE_DIR_PATH=\$SRCROOT" \
             export_options:"exportOptions.plist"
 
-      - name: Upload to TestFlight
-        run: |
-          bundle exec fastlane run upload_to_testflight \
-            api_key_path:"AuthKey.json" \
-            skip_waiting_for_build_processing:true \
-            distribute_external:false
-
-      - name: Upload artifacts
-        if: always()
+      # ----- ARTIFACTS -----
+      - name: Upload .xcarchive
         uses: actions/upload-artifact@v4
         with:
-          name: ios-artifacts
-          path: |
-            ios/build/*.ipa
-            /Users/runner/Library/Developer/Xcode/Archives/**/*.xcarchive
-          if-no-files-found: warn
+          name: ios-xcarchive
+          path: /Users/runner/Library/Developer/Xcode/Archives/**/BitTracker*.xcarchive
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ios/build/*.ipa
+
+      # (Optional) Clean up keychain
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain build.keychain || true
