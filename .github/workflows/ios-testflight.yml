@@ -44,7 +44,7 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      - name: Flutter precache & pub get (generates ios/Flutter/Generated.xcconfig)
+      - name: Flutter precache & pub get (ensures ios/Flutter/Generated.xcconfig)
         shell: bash
         run: |
           flutter --version
@@ -73,7 +73,7 @@ jobs:
           pod install
           test -d Runner.xcworkspace && echo "✅ xcworkspace present" || (echo "::error ::Runner.xcworkspace not created" && exit 1)
 
-      # --- Decode secrets to files (handles both GNU/base64 and macOS/base64) ---
+      # --- Decode secrets to files (works on both GNU and macOS base64) ---
       - name: Decode signing & ASC key
         shell: bash
         run: |
@@ -94,33 +94,33 @@ jobs:
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nokeys -clcerts -info >/dev/null
           echo "✅ p12 password OK"
 
-      - name: Install cert/key into custom keychain & profile to Provisioning Profiles
+      - name: Install signing cert & provisioning profile
         shell: bash
         run: |
           set -e
           KEYCHAIN=build.keychain
           PW=ci_temp_123
+
           security create-keychain -p "$PW" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$PW" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN"
 
-          # Split p12 for explicit control
-          openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -clcerts -nokeys -out dist_cert.pem
-          openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nocerts -nodes -out dist_key.pem
-
-          security import dist_cert.pem -k "$KEYCHAIN" -A -T /usr/bin/codesign
-          security import dist_key.pem  -k "$KEYCHAIN" -A -T /usr/bin/codesign
+          # Import P12 directly so cert + private key stay paired
+          security import dist.p12 -k "$KEYCHAIN" -P "$IOS_P12_PASSWORD" -A -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KEYCHAIN"
           security find-identity -v -p codesigning "$KEYCHAIN" || true
 
+          # Install provisioning profile, capture UUID + Name
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$(/usr/bin/security cms -D -i app.mobileprovision)")
-          NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$(/usr/bin/security cms -D -i app.mobileprovision)")
+          PLIST=$(/usr/bin/security cms -D -i app.mobileprovision)
+          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PLIST")
+          NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PLIST")
+          NAME_CLEAN="${NAME%.mobileprovision}"
           cp app.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
-          echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
-          echo "PROFILE_NAME=$NAME" >> $GITHUB_ENV
-          echo "✅ Installed profile: $NAME ($UUID)"
+          echo "PROFILE_UUID=$UUID"       >> $GITHUB_ENV
+          echo "PROFILE_NAME=$NAME_CLEAN" >> $GITHUB_ENV
+          echo "✅ Installed profile: $NAME_CLEAN ($UUID)"
 
       - name: Sanity • Profile vs secrets
         shell: bash
@@ -163,8 +163,7 @@ jobs:
             xcodeproj:"ios/Runner.xcodeproj" \
             build_number:"${GITHUB_RUN_NUMBER}"
 
-      # --- Build IPA (Manual signing: use installed profile) ---
-      - name: Build IPA
+      - name: Build IPA (Manual signing + force Distribution identity)
         shell: bash
         run: |
           set -e
@@ -172,11 +171,12 @@ jobs:
             workspace:"ios/Runner.xcworkspace" \
             scheme:"Runner" \
             export_method:"app-store" \
+            configuration:"Release" \
             clean:true \
             include_bitcode:false \
             output_directory:"ios/build" \
             output_name:"BitTracker.ipa" \
-            xcargs:"PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=${PROFILE_NAME} PROVISIONING_PROFILE=${PROFILE_UUID}" \
+            xcargs:"PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID} CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=Apple\ Distribution PROVISIONING_PROFILE_SPECIFIER=${PROFILE_UUID} PROVISIONING_PROFILE=${PROFILE_UUID} OTHER_CODE_SIGN_FLAGS=--keychain\ build.keychain" \
             export_options:"exportOptions.plist"
 
           ls -la ios/build || true
