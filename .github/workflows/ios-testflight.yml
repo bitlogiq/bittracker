@@ -1,69 +1,99 @@
-name: iOS Build & TestFlight
+name: iOS TestFlight
 
 on:
   workflow_dispatch:
   push:
-    tags:
-      - 'ios-v*'     # e.g. ios-v1.2.3 — push a tag to trigger
+    branches: [ main ]
 
 jobs:
-  build:
-    runs-on: macos-14  # Xcode 15.4 on Apple Silicon
+  ios-testflight:
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash -eo pipefail
 
     env:
-      # Fastlane/Match inputs (add these as GitHub Secrets)
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}               # e.g. https://<token>@github.com/you/certs.git
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}             # the match encryption password
-
-      # App Store Connect API key (recommended for TestFlight upload)
-      ASC_KEY_ID:        ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID:     ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}              # entire contents of the .p8 file
-
-      # (Optional) if your Fastfile reads these:
+      # ---- App / Team ----
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
       TEAM_ID: R4R4AW7JUQ
+
+      # ---- fastlane match ----
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+
+      # ---- App Store Connect API key (fastlane uses this to upload to TestFlight)
+      ASC_KEY_ID:        ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID:     ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }} # raw contents (or base64) of the *.p8 key
+
+      # Let fastlane know where the API key file will be (we write it below)
+      APP_STORE_CONNECT_API_KEY_PATH: ${{ github.workspace }}/appstore_connect_api_key.json
+
+      # Force Bundler to use the Gemfile in repo root even when we cd into ios/
+      BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 15.4
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+      # If Flutter project, set it up (safe to keep even if not strictly needed)
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
 
-      - name: Set up Ruby (uses your Gemfile)
+      - name: Flutter packages
+        run: flutter pub get
+
+      - name: Set up Ruby (pin Bundler)
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.2
+          ruby-version: '3.2'
+          bundler: '2.4.19'
           bundler-cache: true
 
-      - name: Create App Store Connect API key file
+      - name: Bundle install (root Gemfile)
+        run: bundle install --jobs 4 --retry 3
+
+      - name: Prepare App Store Connect API key file
         run: |
-          cat > appstore_connect_api_key.json <<'JSON'
-          {
-            "key_id": "${ASC_KEY_ID}",
-            "issuer_id": "${ASC_ISSUER_ID}",
-            "key": "${ASC_KEY_P8}"
-          }
-          JSON
-          echo "APP_STORE_CONNECT_API_KEY_PATH=$PWD/appstore_connect_api_key.json" >> $GITHUB_ENV
+          # If ASC_KEY_P8 is base64, decode it; if it's raw, this will just fail silently and we keep raw
+          set +e
+          echo "$ASC_KEY_P8" | base64 --decode > "$APP_STORE_CONNECT_API_KEY_PATH"
+          if [ $? -ne 0 ]; then
+            echo "$ASC_KEY_P8" > "$APP_STORE_CONNECT_API_KEY_PATH"
+          fi
+          set -e
+          # Create minimal JSON if you prefer fastlane's JSON format; otherwise, fastlane can read env vars directly.
+          # Keeping file for compatibility with your Fastfile usage.
+          # Note: If you want JSON-format strictly, replace contents with proper JSON structure & fields.
 
-      - name: Cache CocoaPods
-        uses: actions/cache@v4
-        with:
-          path: |
-            ios/Pods
-            ~/Library/Caches/CocoaPods
-            ~/.cocoapods
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pods-
-
-      - name: Install CocoaPods (from Gemfile if present)
+      - name: CocoaPods (install)
         working-directory: ios
         run: |
           bundle exec pod install --verbose
 
-      - name: Build & Upload via Fastlane
+      - name: Show environment (debug)
         run: |
-          bundle exec fastlane ios ci
+          which ruby
+          ruby -v
+          bundle -v
+          pod --version || true
+          gem env
+
+      - name: Build & upload with fastlane
+        # Your Fastfile has `lane :ci` under `platform :ios`
+        run: bundle exec fastlane ios ci
+        # If you want more xcodebuild logs with xcbeautify, add it to your Gemfile and use `| xcbeautify` in your Fastfile build step.
+
+      # Optional: keep build artifacts
+      - name: Archive artifacts (ipa, logs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-artifacts
+          path: |
+            ios/build/**/*.ipa
+            ~/Library/Logs/gym/**/*.log
+            /Users/runner/Library/Logs/gym/**/*.log
+            /Users/runner/Library/Developer/Xcode/Archives/**/*.xcarchive
