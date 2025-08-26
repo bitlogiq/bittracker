@@ -3,62 +3,52 @@ default_platform(:ios)
 platform :ios do
   desc "CI lane to build and upload to TestFlight"
   lane :ci do
-    # --- Temporary CI keychain ---
+    # --- Temporary CI keychain (for GitHub Actions runner) ---
     create_keychain(
       name: "ci_tmp",
+      password: "temp_password_123",
       default_keychain: true,
-      timeout: 3600,
       unlock: true,
-      add_to_keychain_search_list: true,
-      password: "temp_password_123"
+      timeout: 3600,
+      lock_when_sleeps: false,
+      add_to_search_list: true,   # ✅ correct param (old one was invalid)
+      require_create: true
     )
 
-    # --- App Store Connect API key (from GitHub Secrets) ---
-    app_store_connect_api_key(
-      key_id:          ENV["ASC_KEY_ID"],
-      issuer_id:       ENV["ASC_ISSUER_ID"],
-      key_content:     ENV["ASC_PRIVATE_KEY"], # PEM content, not base64
-      is_key_content_base64: false,
-      in_house:        false
-    )
-
-    # --- Sync signing with match ---
+    # --- Code signing (fetch certs/profiles via match) ---
     match(
-      type: "appstore",
-      readonly: false, # allow CI to create/update on first run
-      app_identifier: "za.co.bitlogiq.bittracker",
+      type: "appstore",  # App Store distribution
+      readonly: false,
+      app_identifier: ENV["APP_IDENTIFIER"] || "za.co.bitlogiq.bittracker",
       git_url: ENV["MATCH_GIT_URL"],
-      git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"],
+      git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"], # optional if using HTTPS+token
       keychain_name: "ci_tmp",
       keychain_password: "temp_password_123"
     )
 
-    # --- Build (gym) ---
+    # --- Build app (gym) ---
     build_app(
-      workspace: "Runner.xcworkspace",
       scheme: "Runner",
       configuration: "Release",
       export_method: "app-store",
-      clean: true,
+      xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{ENV['TEAM_ID'] || 'R4R4AW7JUQ'}",
       output_directory: "build",
-      output_name: "BitTracker",
-      include_bitcode: false,
-      # Allow Xcode to pick the matched provisioning profiles
-      # Ensure your Apple Team ID is correct here:
-      xcargs: "DEVELOPMENT_TEAM=R4R4AW7JUQ -allowProvisioningUpdates"
+      output_name: "BitTracker.ipa"
     )
 
     # --- Upload to TestFlight ---
     upload_to_testflight(
+      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_PATH"], # API key JSON generated in workflow
       skip_submission: true,
       skip_waiting_for_build_processing: true
     )
+
   ensure
-    # Always try to remove the temporary keychain
+    # Always clean up the temp keychain
     begin
       delete_keychain(name: "ci_tmp")
-    rescue => e
-      UI.message("Keychain cleanup skipped: #{e}")
+    rescue
+      UI.message("Keychain cleanup skipped (not found).")
     end
   end
 end
