@@ -87,6 +87,11 @@ jobs:
           {"key_id":"$ASC_KEY_ID","issuer_id":"$ASC_ISSUER_ID","key":"$KEY_ESCAPED","duration":1200,"in_house":false}
           JSON
 
+      - name: Check decoded p12 checksum
+        shell: bash
+        run: |
+          shasum -a 256 dist.p12
+
       # --- Sanity: verify p12 password before importing ---
       - name: Verify p12 password (sanity check)
         shell: bash
@@ -116,6 +121,11 @@ jobs:
           echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
           echo "PROFILE_NAME=$NAME" >> $GITHUB_ENV
           echo "✅ Installed profile: $NAME ($UUID)"
+
+      - name: Show code signing identities
+        shell: bash
+        run: |
+          security find-identity -v -p codesigning build.keychain || true
 
       - name: Bump build number
         run: |
