@@ -71,7 +71,7 @@ jobs:
           pod install
 
       # --- Decode secrets to files ---
-      - name: Decode signing & ASC key
+      - name: Decode signing & ASC key (robust)
         shell: bash
         run: |
           set -e
@@ -166,16 +166,11 @@ jobs:
             xcodeproj:"ios/Runner.xcodeproj" \
             build_number:"${GITHUB_RUN_NUMBER}"
 
-      # --- FIXED Build IPA ---
+      # --- Build IPA (Automatic signing; no identity override) ---
       - name: Build IPA
         shell: bash
         run: |
           set -e
-          IDENTITY=$(security find-identity -v -p codesigning build.keychain | awk -F\" '/Apple Distribution/ {print $2; exit}')
-          if [ -z "$IDENTITY" ]; then
-            echo "::error ::No Apple Distribution identity found"; security find-identity -v -p codesigning build.keychain; exit 1
-          fi
-
           fastlane run build_app \
             workspace:"ios/Runner.xcworkspace" \
             scheme:"Runner" \
@@ -184,8 +179,7 @@ jobs:
             include_bitcode:false \
             output_directory:"ios/build" \
             output_name:"BitTracker.ipa" \
-            codesigning_identity:"$IDENTITY" \
-            xcargs:"PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID}" \
+            xcargs:"PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID} CODE_SIGN_STYLE=Automatic" \
             export_options:"exportOptions.plist"
 
           ls -la ios/build || true
