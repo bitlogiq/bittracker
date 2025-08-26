@@ -71,7 +71,7 @@ jobs:
           echo "---- ios/Gemfile ----"
           test -f ios/Gemfile && echo "Gemfile present"
 
-      # Run fastlane FROM ios/ and WITH bundle exec
+      # Run FROM ios/ with bundle exec so Fastfile is found
       - name: Build & upload to TestFlight
         working-directory: ios
         env:
