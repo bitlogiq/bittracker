@@ -10,22 +10,15 @@ jobs:
     runs-on: macos-14
 
     env:
-      # App metadata
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
       APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
-
-      # App Store Connect API (secrets)
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-
-      # match (secrets)
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
-
-      # CI hygiene
       CI: "true"
       FASTLANE_SKIP_CONFIRMATIONS: "1"
       GIT_TERMINAL_PROMPT: "0"
@@ -51,7 +44,6 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      # Ruby + Bundler using ios/Gemfile
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -77,11 +69,11 @@ jobs:
           echo "---- ios/fastlane ----"
           ls -la ios/fastlane
 
-      # IMPORTANT: run from ios/ and use bundle exec so Fastfile is found
+      # IMPORTANT: run from ios/ and use bundle exec
       - name: Build & upload to TestFlight
         working-directory: ios
         env:
-          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile }
+          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
         run: bundle exec fastlane ios beta
 
       - name: Archive artifacts (ipa, logs)
