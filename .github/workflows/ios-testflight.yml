@@ -10,15 +10,22 @@ jobs:
     runs-on: macos-14
 
     env:
+      # App metadata
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
       APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
+
+      # App Store Connect API (secrets)
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+
+      # match (secrets)
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+
+      # CI hygiene
       CI: "true"
       FASTLANE_SKIP_CONFIRMATIONS: "1"
       GIT_TERMINAL_PROMPT: "0"
@@ -49,32 +56,34 @@ jobs:
         with:
           ruby-version: '3.2'
 
-      - name: Bundle install (fastlane/cocoapods)
-        working-directory: ios
+      - name: Bundle install (fastlane/cocoapods) using ios/Gemfile
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
         run: bundle install --jobs 4 --retry 3
 
-      - name: Pod install (via Bundler)
-        working-directory: ios
+      - name: Pod install (via Bundler) inside ios/
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
         run: |
+          cd ios
           bundle exec pod repo update
           bundle exec pod install
 
-      - name: Debug layout
+      - name: Debug layout (prove files exist)
         run: |
           pwd && ls -la
           echo "---- ios/fastlane ----"
-          ls -la ios/fastlane
+          ls -la ios/fastlane || true
+          echo "---- Gemfile in ios ----"
+          ls -la ios/Gemfile || true
 
-      # IMPORTANT: run from ios/ and use bundle exec
-      - name: Build & upload to TestFlight
-        working-directory: ios
+      # FORCE fastlane to use ios/Gemfile and ios/fastlane/Fastfile no matter CWD
+      - name: Build & upload to TestFlight (explicit Fastfile + Gemfile)
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
-        run: bundle exec fastlane ios beta
+        run: |
+          bundle exec fastlane --version
+          bundle exec fastlane --fastfile ios/fastlane/Fastfile ios beta
 
       - name: Archive artifacts (ipa, logs)
         if: always()
