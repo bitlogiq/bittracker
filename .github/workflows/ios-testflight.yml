@@ -29,8 +29,8 @@ jobs:
       CI: "true"
       FASTLANE_SKIP_CONFIRMATIONS: "1"
       GIT_TERMINAL_PROMPT: "0"
-      FASTLANE_DISABLE_COLORS: "1"
       FASTLANE_CI: "1"
+      FASTLANE_DISABLE_COLORS: "1"
 
     steps:
       - name: Checkout
@@ -51,32 +51,37 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      # Use Bundler since a Gemfile is present
-      - name: Set up Ruby + Bundler cache
+      # Ruby + Bundler (we’ll install using ios/Gemfile)
+      - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-          bundler-cache: true
 
-      - name: Bundle install (fastlane/cocoapods)
+      - name: Bundle install (using ios/Gemfile)
+        working-directory: ios
+        env:
+          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
         run: bundle install --jobs 4 --retry 3
 
-      - name: Pod install
+      - name: Pod install (via Bundler)
         working-directory: ios
+        env:
+          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
         run: |
           bundle exec pod repo update
           bundle exec pod install
 
-      - name: Debug filesystem
+      - name: Debug layout
         run: |
-          pwd
-          ls -la
+          pwd && ls -la
           echo "---- ios/fastlane ----"
           ls -la ios/fastlane
 
-      # IMPORTANT: run from ios/ because Fastfile is at ios/fastlane/Fastfile
+      # IMPORTANT: run from ios/ and use bundle exec
       - name: Build & upload to TestFlight
         working-directory: ios
+        env:
+          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
         run: bundle exec fastlane ios beta
 
       - name: Archive artifacts (ipa, logs)
@@ -85,7 +90,7 @@ jobs:
         with:
           name: ios-build-artifacts
           path: |
-            build/**/*.ipa
+            ios/build/**/*.ipa
             ~/Library/Logs/gym/**/*.log
             /Users/runner/Library/Logs/gym/**/*.log
             /Users/runner/Library/Developer/Xcode/Archives/**/*.xcarchive
