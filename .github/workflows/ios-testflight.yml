@@ -17,16 +17,14 @@ jobs:
       TEAM_ID: R4R4AW7JUQ
 
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-      MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
 
       ASC_KEY_ID:        ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID:     ${{ secrets.ASC_ISSUER_ID }}
       ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}
 
       APP_STORE_CONNECT_API_KEY_PATH: ${{ github.workspace }}/appstore_connect_api_key.json
-
-      # Use root Gemfile even when we cd into ios/
       BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
 
     steps:
@@ -38,53 +36,43 @@ jobs:
         with:
           channel: stable
 
-      - name: Flutter packages
+      - name: Flutter pub get
         run: |
           set -euo pipefail
           flutter pub get
 
-      - name: Set up Ruby (pin Bundler)
+      - name: Set up Ruby (Bundler pinned)
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
           bundler: '2.4.19'
           bundler-cache: true
 
-      - name: Bundle install (root Gemfile)
+      - name: Bundle install
         run: |
           set -euo pipefail
           bundle install --jobs 4 --retry 3
 
-      - name: Prepare App Store Connect API key file
+      - name: Write App Store Connect API key (.p8) to file
         run: |
           set -euo pipefail
-          # Try base64 decode first, fall back to raw text
+          # ASC_KEY_P8 must be the raw .p8 contents or base64 of it
           if echo "$ASC_KEY_P8" | base64 --decode > "$APP_STORE_CONNECT_API_KEY_PATH" 2>/dev/null; then
-            true
+            :
           else
             echo "$ASC_KEY_P8" > "$APP_STORE_CONNECT_API_KEY_PATH"
           fi
 
-      - name: CocoaPods (install)
+      - name: CocoaPods install
         working-directory: ios
         run: |
           set -euo pipefail
           bundle exec pod install --verbose
 
-      - name: Show environment (debug)
-        run: |
-          set -euo pipefail
-          which ruby
-          ruby -v
-          bundle -v
-          pod --version || true
-          gem env
-
       - name: Build & upload with fastlane
-        working-directory: ios
         run: |
           set -euo pipefail
-          bundle exec fastlane ci
+          bundle exec fastlane ios ci
 
       - name: Archive artifacts (ipa, logs)
         if: always()
