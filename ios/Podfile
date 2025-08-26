@@ -7,22 +7,24 @@ project 'Runner', {
   'Release' => :release,
 }
 
-# Helper: find Flutter SDK
+# --- Locate Flutter root ---
 def flutter_root
   env_root = ENV['FLUTTER_ROOT']
   return env_root.gsub('\\','/') if env_root && !env_root.empty?
 
   generated = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-  raise "Generated.xcconfig must exist. Run 'flutter pub get' first." unless File.exist?(generated)
+  unless File.exist?(generated)
+    raise "Generated.xcconfig must exist. Run 'flutter pub get' first."
+  end
 
   File.foreach(generated) do |line|
     m = line.match(/FLUTTER_ROOT\=(.*)/)
     return m[1].strip.gsub('\\','/') if m
   end
-
   raise "FLUTTER_ROOT not found in Generated.xcconfig."
 end
 
+# --- CocoaPods helper from Flutter ---
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
 flutter_ios_podfile_setup
@@ -32,25 +34,12 @@ target 'Runner' do
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-end
 
-# Ensure all pods + Runner project have consistent settings
-post_install do |installer|
-  # Apply Flutter’s default build settings to pods
-  installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-  end
-
-  # Apply settings to the Runner project via aggregate_targets
-  installer.aggregate_targets.each do |agg|
-    next if agg.user_project.nil?
-    agg.user_project.targets.each do |t|
-      t.build_configurations.each do |config|
-        # Exclude old sim archs (avoids M1 build errors)
-        config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'i386'
-
-        # Set consistent minimum deployment target
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+  # --- Post-install: align iOS target versions ---
+  post_install do |installer|
+    installer.pods_project.targets.each do |t|
+      t.build_configurations.each do |bc|
+        bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
       end
     end
   end
