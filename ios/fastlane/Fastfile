@@ -1,54 +1,63 @@
+# fastlane/Fastfile
 default_platform(:ios)
 
 platform :ios do
-  desc "CI lane to build and upload to TestFlight"
+  desc "CI: build and upload to TestFlight"
   lane :ci do
-    # --- Temporary CI keychain (for GitHub Actions runner) ---
+    # --- Temporary CI keychain ---
     create_keychain(
       name: "ci_tmp",
-      password: "temp_password_123",
+      password: ENV.fetch("KEYCHAIN_PASSWORD", "temp_password_123"),
       default_keychain: true,
       unlock: true,
       timeout: 3600,
-      lock_when_sleeps: false,
-      add_to_search_list: true,   # ✅ correct param (old one was invalid)
+      add_to_search_list: true,
       require_create: true
     )
 
-    # --- Code signing (fetch certs/profiles via match) ---
-    match(
-      type: "appstore",  # App Store distribution
-      readonly: false,
-      app_identifier: ENV["APP_IDENTIFIER"] || "za.co.bitlogiq.bittracker",
-      git_url: ENV["MATCH_GIT_URL"],
-      git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"], # optional if using HTTPS+token
-      keychain_name: "ci_tmp",
-      keychain_password: "temp_password_123"
+    # --- App Store Connect API key (we wrote the file earlier in the workflow) ---
+    app_store_connect_api_key(
+      key_id:                ENV['ASC_KEY_ID'],
+      issuer_id:             ENV['ASC_ISSUER_ID'],
+      key_content:           File.read(ENV['APP_STORE_CONNECT_API_KEY_PATH']),
+      is_key_content_base64: false,
+      in_house:              false
     )
 
-    # --- Build app (gym) ---
+    # --- Code signing via match (git) ---
+    match(
+      type:                    "appstore",
+      readonly:                false,
+      storage_mode:            "git",
+      git_url:                 ENV['MATCH_GIT_URL'],
+      git_basic_authorization: ENV['MATCH_GIT_TOKEN'], # fine-grained token
+      app_identifier:          ENV['APP_IDENTIFIER'],
+      keychain_name:           "ci_tmp",
+      keychain_password:       ENV.fetch("KEYCHAIN_PASSWORD", "temp_password_123"),
+      clone_branch_directly:   true
+    )
+
+    # (Optional) run pods again here if you like
+    # cocoapods(project_directory: "ios", clean_install: true)
+
+    # --- Build IPA ---
     build_app(
-      scheme: "Runner",
-      configuration: "Release",
-      export_method: "app-store",
-      xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{ENV['TEAM_ID'] || 'R4R4AW7JUQ'}",
-      output_directory: "build",
-      output_name: "BitTracker.ipa"
+      workspace:        "ios/Runner.xcworkspace",
+      scheme:           "Runner",
+      configuration:    "Release",
+      export_method:    "app-store",
+      output_directory: "ios/build",
+      output_name:      "BitTracker.ipa",
+      include_bitcode:  false,
+      xcargs:           "DEVELOPMENT_TEAM=#{ENV['TEAM_ID']} ONLY_ACTIVE_ARCH=NO"
     )
 
     # --- Upload to TestFlight ---
     upload_to_testflight(
-      api_key_path: ENV["APP_STORE_CONNECT_API_KEY_PATH"], # API key JSON generated in workflow
       skip_submission: true,
       skip_waiting_for_build_processing: true
     )
-
   ensure
-    # Always clean up the temp keychain
-    begin
-      delete_keychain(name: "ci_tmp")
-    rescue
-      UI.message("Keychain cleanup skipped (not found).")
-    end
+    delete_keychain(name: "ci_tmp")
   end
 end
