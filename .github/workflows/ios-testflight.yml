@@ -1,34 +1,35 @@
 name: iOS TestFlight
 
 on:
-  workflow_dispatch:  # run manually only
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ios-testflight:
-    runs-on: macos-latest
-    defaults:
-      run:
-        shell: bash
+    runs-on: macos-14
 
     env:
       # App metadata
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
+      APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
 
-      # fastlane match (certs repo)
-      MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }} # "Basic base64(username:token)"
+      # App Store Connect API (secrets)
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+
+      # fastlane match (certs repo) - secrets
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
 
-      # App Store Connect API key (key_id, issuer_id, and the .p8 content as raw or base64)
-      ASC_KEY_ID:        ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID:     ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}
-
-      # Ruby uses the root Gemfile even if we cd into ios/
-      BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
-
-      # Avoid any interactive prompts in CI
+      # CI hygiene
       CI: "true"
       FASTLANE_SKIP_CONFIRMATIONS: "1"
       GIT_TERMINAL_PROMPT: "0"
@@ -37,39 +38,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Java (for Flutter tooling)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
 
       - name: Flutter pub get
-        run: |
-          set -euo pipefail
-          flutter pub get
+        run: flutter pub get
 
-      - name: Set up Ruby (Bundler pinned)
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-          bundler: '2.4.19'
-          bundler-cache: true
+      - name: Install CocoaPods
+        run: sudo gem install cocoapods -N
 
-      - name: Bundle install
-        run: |
-          set -euo pipefail
-          bundle install --jobs 4 --retry 3
-
-      - name: CocoaPods install
+      - name: Pod install
         working-directory: ios
         run: |
-          set -euo pipefail
-          bundle exec pod install --verbose
+          pod repo update
+          pod install
 
-              - name: Build & upload with fastlane
-  working-directory: ios
-  run: |
-    set -euo pipefail
-    bundle exec fastlane ios ci
+      - name: Install fastlane
+        run: sudo gem install fastlane -N
+
+      - name: Build & upload to TestFlight
+        run: fastlane ios beta
 
       - name: Archive artifacts (ipa, logs)
         if: always()
