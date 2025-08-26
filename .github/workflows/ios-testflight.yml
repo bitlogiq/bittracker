@@ -13,16 +13,16 @@ jobs:
       APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
 
-      # App Store Connect API (secrets you already have)
+      # App Store Connect API (secrets already in your repo)
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
 
-      # match via HTTPS + PAT
+      # match via HTTPS + PAT (NO SSH)
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_GIT_USERNAME: ${{ secrets.MATCH_GIT_USERNAME }}
-      MATCH_GIT_PAT:      ${{ secrets.MATCH_GIT_PAT }}
+      MATCH_GIT_USERNAME: ${{ secrets.MATCH_GIT_USERNAME }}  # your GitHub username
+      MATCH_GIT_PAT:      ${{ secrets.MATCH_GIT_PAT }}       # PAT with repo scope
 
       # CI hygiene
       CI: "true"
@@ -69,7 +69,7 @@ jobs:
           bundle exec pod repo update
           bundle exec pod install
 
-      # Build the "Basic base64(username:token)" header safely
+      # Build the "Basic base64(username:token)" header safely for match
       - name: Build Basic auth header for match
         id: basicauth
         shell: bash
