@@ -32,10 +32,11 @@ jobs:
       - name: Validate required secrets
         run: |
           set -e
+          fail=0
           for v in IOS_BUNDLE_ID APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64 IOS_P12_B64 IOS_P12_PASSWORD IOS_MOBILEPROVISION_B64; do
             if [ -z "${!v}" ]; then echo "::error ::Missing secret: $v"; fail=1; fi
           done
-          [ "${fail:-0}" -eq 1 ] && exit 1 || echo "✅ Secrets present"
+          [ "$fail" -ne 0 ] && exit 1 || echo "✅ Secrets present"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -64,13 +65,20 @@ jobs:
           pod repo update
           pod install
 
-      # --- Decode secrets to files ---
+      # --- Decode secrets to files (robust for macOS/GNU) ---
       - name: Decode signing & ASC key
         shell: bash
         run: |
-          echo "$IOS_P12_B64" | base64 -d > dist.p12
-          echo "$IOS_MOBILEPROVISION_B64" | base64 -d > app.mobileprovision
-          echo "$ASC_PRIVATE_KEY_B64" | base64 -d > AuthKey.p8
+          set -e
+          # p12
+          (echo "$IOS_P12_B64" | tr -d '\n\r' | base64 -D > dist.p12) || (echo "$IOS_P12_B64" | base64 -d > dist.p12)
+          # mobileprovision
+          (echo "$IOS_MOBILEPROVISION_B64" | tr -d '\n\r' | base64 -D > app.mobileprovision) || (echo "$IOS_MOBILEPROVISION_B64" | base64 -d > app.mobileprovision)
+          # ASC .p8
+          (echo "$ASC_PRIVATE_KEY_B64" | tr -d '\n\r' | base64 -D > AuthKey.p8) || (echo "$ASC_PRIVATE_KEY_B64" | base64 -d > AuthKey.p8)
+
+          echo "Sizes:"
+          ls -lah dist.p12 app.mobileprovision AuthKey.p8
 
           # Build AuthKey.json for fastlane (ES256 key)
           KEY_ESCAPED=$(awk '{gsub(/"/,"\\\""); printf "%s\\n",$0}' AuthKey.p8)
@@ -80,6 +88,7 @@ jobs:
 
       # --- Sanity: verify p12 password before importing ---
       - name: Verify p12 password (sanity check)
+        shell: bash
         run: |
           set -e
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nokeys -clcerts -info >/dev/null
@@ -153,10 +162,13 @@ jobs:
             distribute_external:false
           echo "✅ Upload to TestFlight initiated"
 
-      - name: Upload IPA artifact
+      - name: Upload IPA & logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-ipa
-          path: ios/build/*.ipa
+          name: ios-artifacts
+          path: |
+            ios/build/*.ipa
+            $HOME/Library/Logs/gym
+            ~/Library/Developer/Xcode/DerivedData
           if-no-files-found: warn
