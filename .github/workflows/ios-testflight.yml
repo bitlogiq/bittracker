@@ -1,7 +1,7 @@
 name: iOS TestFlight
 
 on:
-  workflow_dispatch:   # 🔥 manual trigger only
+  workflow_dispatch: {}     # run manually from Actions tab
 
 jobs:
   ios-testflight:
@@ -15,15 +15,17 @@ jobs:
       TEAM_ID: R4R4AW7JUQ
 
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-      MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
 
-      ASC_KEY_ID:        ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID:     ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}
+      ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8:    ${{ secrets.ASC_KEY_P8 }}
 
-      APP_STORE_CONNECT_API_KEY_PATH: ${{ github.workspace }}/appstore_connect_api_key.p8
+      # Fastlane reads the .p8 file path from the Fastfile
+      APP_STORE_CONNECT_API_KEY_PATH: ${{ github.workspace }}/appstore_connect_api_key.json
 
+      # Use the root Gemfile even when steps run inside ios/
       BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
 
     steps:
@@ -36,7 +38,9 @@ jobs:
           channel: stable
 
       - name: Flutter pub get
-        run: flutter pub get
+        run: |
+          set -euo pipefail
+          flutter pub get
 
       - name: Set up Ruby (Bundler pinned)
         uses: ruby/setup-ruby@v1
@@ -45,19 +49,32 @@ jobs:
           bundler: '2.4.19'
           bundler-cache: true
 
-      - name: Bundle install
-        run: bundle install --jobs 4 --retry 3
+      - name: Bundle install (root Gemfile)
+        run: |
+          set -euo pipefail
+          bundle install --jobs 4 --retry 3
 
       - name: Write App Store Connect API key (.p8) to file
         run: |
-          echo "$ASC_KEY_P8" | base64 --decode > "$APP_STORE_CONNECT_API_KEY_PATH"
+          set -euo pipefail
+          # Accept raw .p8 or base64—decode if possible, else write as-is
+          if echo "$ASC_KEY_P8" | base64 --decode > "$APP_STORE_CONNECT_API_KEY_PATH" 2>/dev/null; then
+            :
+          else
+            echo "$ASC_KEY_P8" > "$APP_STORE_CONNECT_API_KEY_PATH"
+          fi
 
       - name: CocoaPods install
         working-directory: ios
-        run: bundle exec pod install --verbose
+        run: |
+          set -euo pipefail
+          bundle exec pod install --verbose
 
       - name: Build & upload with fastlane
-        run: bundle exec fastlane ios ci
+        working-directory: ios        # <-- IMPORTANT: run inside ios/ so Fastfile is found
+        run: |
+          set -euo pipefail
+          bundle exec fastlane ci
 
       - name: Archive artifacts (ipa, logs)
         if: always()
