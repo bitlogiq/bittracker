@@ -5,10 +5,6 @@ on:
   push:
     branches: [ main ]
 
-concurrency:
-  group: ios-testflight-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   ios-testflight:
     runs-on: macos-14
@@ -24,7 +20,7 @@ jobs:
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
 
-      # fastlane match (certs repo) - secrets
+      # match (secrets)
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
@@ -38,23 +34,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java (for Flutter tooling)
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      - name: Set up Flutter
+      - name: Set up Flutter (pinned)
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: 3.35.1
           cache: true
 
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Install CocoaPods
-        run: sudo gem install cocoapods -N
+      - name: Install CocoaPods & Fastlane
+        run: |
+          sudo gem install cocoapods -v 1.15.2 -N
+          sudo gem install fastlane   -v 2.228.0 -N
 
       - name: Pod install
         working-directory: ios
@@ -62,10 +60,16 @@ jobs:
           pod repo update
           pod install
 
-      - name: Install fastlane
-        run: sudo gem install fastlane -N
+      - name: Debug filesystem
+        run: |
+          pwd
+          ls -la
+          echo "---- ios/fastlane ----"
+          ls -la ios/fastlane
 
+      # IMPORTANT: run fastlane FROM ios/ because your Fastfile is at ios/fastlane/Fastfile
       - name: Build & upload to TestFlight
+        working-directory: ios
         run: fastlane ios beta
 
       - name: Archive artifacts (ipa, logs)
@@ -74,7 +78,7 @@ jobs:
         with:
           name: ios-build-artifacts
           path: |
-            ios/build/**/*.ipa
+            build/**/*.ipa
             ~/Library/Logs/gym/**/*.log
             /Users/runner/Library/Logs/gym/**/*.log
             /Users/runner/Library/Developer/Xcode/Archives/**/*.xcarchive
