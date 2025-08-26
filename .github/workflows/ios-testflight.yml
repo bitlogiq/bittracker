@@ -21,8 +21,8 @@ jobs:
       # match via HTTPS + PAT (NO SSH)
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_GIT_USERNAME: ${{ secrets.MATCH_GIT_USERNAME }}  # optional; fallback used if empty
-      MATCH_GIT_PAT:      ${{ secrets.MATCH_GIT_PAT }}       # PAT with repo scope
+      MATCH_GIT_PAT:  ${{ secrets.MATCH_GIT_PAT }}             # PAT with repo scope
+      # MATCH_GIT_USERNAME not required; we force x-access-token below
 
       # CI hygiene
       CI: "true"
@@ -69,37 +69,36 @@ jobs:
           bundle exec pod repo update
           bundle exec pod install
 
-      # Build base64(username:token) ONLY (no "Basic " prefix), with username fallback
-      - name: Build Basic auth (base64 only, with fallback username)
+      # 🔐 Build base64(username:token) ONLY, force username to 'x-access-token'
+      - name: Build Basic auth (base64 only, force username)
         id: basicauth
         shell: bash
         run: |
-          user="${MATCH_GIT_USERNAME:-x-access-token}"
           if [ -z "${MATCH_GIT_PAT:-}" ]; then
             echo "ERROR: MATCH_GIT_PAT is empty" >&2
             exit 1
           fi
+          user="x-access-token"   # GitHub-accepted username for PAT auth
           b64=$(printf "%s:%s" "$user" "$MATCH_GIT_PAT" | base64)
           echo "b64=$b64" >> "$GITHUB_OUTPUT"
 
-      # Guard: fail early if the string accidentally starts with 'Basic'
-      - name: Sanity-check base64 token
+      # Optional sanity check
+      - name: Check header shape
         shell: bash
         env:
           TOKEN_B64: ${{ steps.basicauth.outputs.b64 }}
         run: |
-          if [[ "$TOKEN_B64" == Basic* ]]; then
-            echo "ERROR: Token must be base64 only, not 'Basic <base64>'" >&2
-            exit 1
-          fi
-          echo "Auth token looks OK."
+          case "$TOKEN_B64" in
+            eC1hY2Nlc3MtdG9rZW46*) echo "OK: username present (x-access-token)";;
+            Ok*) echo "ERROR: header encodes ':<token>' (missing username)"; exit 1;;
+            *) echo "Header looks plausible";;
+          esac
 
       - name: Build & upload to TestFlight
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
-          # Fastfile expects this exact var
-          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.b64 }}
+          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.b64 }}  # base64 only
         run: bundle exec fastlane ios beta
 
       - name: Archive artifacts (ipa, logs)
