@@ -3,6 +3,7 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload to TestFlight"
   lane :beta do
+    # 1) App Store Connect API key from env (no Apple ID prompts)
     api_key = app_store_connect_api_key(
       key_id:      ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id:   ENV["APP_STORE_CONNECT_ISSUER_ID"],
@@ -12,28 +13,36 @@ platform :ios do
       in_house: false
     )
 
+    # 2) Certificates & profiles via match (SSH deploy key; NO basic auth)
+    #    - MATCH_GIT_URL must be SSH, e.g. git@github.com:bitlogiq/ios-cert-store.git
+    #    - MATCH_GIT_PRIVATE_KEY contains the private SSH key (no passphrase)
     match(
       type: "appstore",
       readonly: true,
       storage_mode: "git",
-      git_url: ENV["MATCH_GIT_URL"],              # SSH URL
-      git_branch: "master",
+      git_url: ENV["MATCH_GIT_URL"],
+      git_branch: "master",                              # change to "main" if your cert repo uses main
       git_private_key: ENV["MATCH_GIT_PRIVATE_KEY"],
-      git_basic_authorization: nil,               # <- FORCE disable HTTP Basic
+      git_basic_authorization: nil,                      # force-disable HTTP Basic if any env remains
       api_key: api_key,
       app_identifier: [ENV["APP_IDENTIFIER"]],
       team_id: ENV["TEAM_ID"],
       username: ENV["APPLE_ID"]
     )
 
+    # 3) Bump build number to avoid “build already exists” on TestFlight
     increment_build_number(xcodeproj: "Runner.xcodeproj")
 
+    # 4) Build the iOS app (we run from ios/ in CI, so no 'ios/' prefix here)
     build_app(
       scheme: "Runner",
       workspace: "Runner.xcworkspace",
       export_method: "app-store"
+      # clean: true,               # uncomment if you need a clean build
+      # output_directory: "build", # optional: control where the .ipa lands locally
     )
 
+    # 5) Upload to TestFlight
     upload_to_testflight(
       api_key: api_key,
       skip_waiting_for_build_processing: true,
