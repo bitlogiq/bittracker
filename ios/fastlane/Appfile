@@ -1,5 +1,3 @@
-# fastlane/Appfile
-app_identifier ENV['APP_IDENTIFIER']
-team_id        ENV['TEAM_ID']
-# apple_id ENV['APPLE_ID']        # if you want
-# itc_team_id ENV['ITC_TEAM_ID']  # if n
+# Appfile — minimal & env-driven
+app_identifier(ENV['APP_IDENTIFIER'])  # e.g. za.co.bitlogiq.bittracker
+team_id(ENV['TEAM_ID'])                # e.g. R4R4AW7JUQ
