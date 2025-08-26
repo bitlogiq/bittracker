@@ -13,14 +13,14 @@ jobs:
       APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
 
-      # App Store Connect API
+      # App Store Connect API (secrets)
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
 
-      # match via SSH deploy key
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                 # MUST be SSH: git@github.com:bitlogiq/ios-cert-store.git
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      # match via SSH deploy key (NO basic auth)
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                 # e.g. git@github.com:bitlogiq/ios-cert-store.git
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}               # match encryption password
       MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }} # entire private key text (no passphrase)
 
       # CI hygiene
@@ -68,34 +68,35 @@ jobs:
           bundle exec pod repo update
           bundle exec pod install
 
-      # 🔐 Start ssh-agent and add your deploy key (reliable approach)
-      - name: Load SSH key for cert repo
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: |
-            ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
-
-      # Trust GitHub host key (avoid interactive prompt)
-      - name: Add github.com to known_hosts
+      # 🔐 Write private key and FORCE git to use it (no ssh-agent ambiguity)
+      - name: Configure SSH for cert repo (force key)
+        env:
+          MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
+          echo "$MATCH_GIT_PRIVATE_KEY" > ~/.ssh/match_key
+          # Normalize line endings just in case
+          tr -d '\r' < ~/.ssh/match_key > ~/.ssh/match_key.clean && mv ~/.ssh/match_key.clean ~/.ssh/match_key
+          chmod 600 ~/.ssh/match_key
+          # Trust GitHub host key
           ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
+          # Quick check (may exit non-zero; that's fine)
+          ssh -i ~/.ssh/match_key -o IdentitiesOnly=yes -T git@github.com || true
 
-      # (Optional) Debug to confirm SSH URL and fastlane files exist
       - name: Debug layout
         run: |
           echo "MATCH_GIT_URL=${MATCH_GIT_URL}"
-          echo "Should start with: git@github.com:"
+          echo "Should be SSH (git@github.com:...)"
           ls -la ios/fastlane || true
+          test -f ios/Gemfile && echo "Gemfile present in ios/"
 
-      # Run FROM ios/ with bundler so Fastfile is found
+      # Run FROM ios/ with Bundler; force git to use our key
       - name: Build & upload to TestFlight
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
-          # In case git ignores ssh-agent, force usage of our key:
-          GIT_SSH_COMMAND: "ssh -o IdentitiesOnly=yes"
+          GIT_SSH_COMMAND: "ssh -i ~/.ssh/match_key -o IdentitiesOnly=yes"
         run: bundle exec fastlane ios beta
 
       - name: Archive artifacts (ipa, logs)
