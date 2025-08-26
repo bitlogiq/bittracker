@@ -1,7 +1,8 @@
 name: iOS TestFlight
 
 on:
-  workflow_dispatch: {}     # run manually from Actions tab
+  # Manual only (no auto runs on push)
+  workflow_dispatch:
 
 jobs:
   ios-testflight:
@@ -14,18 +15,19 @@ jobs:
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
       TEAM_ID: R4R4AW7JUQ
 
+      # fastlane match repo + auth
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      # This is the Basic auth "username:token" string (match will base64 it)
+      MATCH_GIT_BASIC_AUTHORIZATION: username:${{ secrets.MATCH_GIT_TOKEN }}
 
-      ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8:    ${{ secrets.ASC_KEY_P8 }}
+      # App Store Connect API key (p8 contents as base64), key id, issuer id
+      ASC_KEY_ID:        ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID:     ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}
 
-      # Fastlane reads the .p8 file path from the Fastfile
-      APP_STORE_CONNECT_API_KEY_PATH: ${{ github.workspace }}/appstore_connect_api_key.json
-
-      # Use the root Gemfile even when steps run inside ios/
+      # Use the root Gemfile
       BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
 
     steps:
@@ -40,6 +42,7 @@ jobs:
       - name: Flutter pub get
         run: |
           set -euo pipefail
+          flutter --version
           flutter pub get
 
       - name: Set up Ruby (Bundler pinned)
@@ -49,20 +52,10 @@ jobs:
           bundler: '2.4.19'
           bundler-cache: true
 
-      - name: Bundle install (root Gemfile)
+      - name: Bundle install
         run: |
           set -euo pipefail
           bundle install --jobs 4 --retry 3
-
-      - name: Write App Store Connect API key (.p8) to file
-        run: |
-          set -euo pipefail
-          # Accept raw .p8 or base64—decode if possible, else write as-is
-          if echo "$ASC_KEY_P8" | base64 --decode > "$APP_STORE_CONNECT_API_KEY_PATH" 2>/dev/null; then
-            :
-          else
-            echo "$ASC_KEY_P8" > "$APP_STORE_CONNECT_API_KEY_PATH"
-          fi
 
       - name: CocoaPods install
         working-directory: ios
@@ -71,10 +64,9 @@ jobs:
           bundle exec pod install --verbose
 
       - name: Build & upload with fastlane
-        working-directory: ios        # <-- IMPORTANT: run inside ios/ so Fastfile is found
         run: |
           set -euo pipefail
-          bundle exec fastlane ci
+          bundle exec fastlane ios ci
 
       - name: Archive artifacts (ipa, logs)
         if: always()
