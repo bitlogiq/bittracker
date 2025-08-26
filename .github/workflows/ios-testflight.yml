@@ -8,23 +8,20 @@ jobs:
     runs-on: macos-14
 
     env:
-      # App metadata
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
       APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
 
-      # App Store Connect API (secrets already in your repo)
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
 
-      # match via HTTPS + PAT (NO SSH)
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+
       MATCH_GIT_USERNAME: ${{ secrets.MATCH_GIT_USERNAME }}  # your GitHub username
       MATCH_GIT_PAT:      ${{ secrets.MATCH_GIT_PAT }}       # PAT with repo scope
 
-      # CI hygiene
       CI: "true"
       FASTLANE_SKIP_CONFIRMATIONS: "1"
       GIT_TERMINAL_PROMPT: "0"
@@ -69,26 +66,31 @@ jobs:
           bundle exec pod repo update
           bundle exec pod install
 
-      # Build the base64 ONLY (no "Basic " prefix)
+      # Build base64 ONLY (no "Basic " prefix) into a new var name
       - name: Build Basic auth (base64 only)
         id: basicauth
         shell: bash
         run: |
-          base64_only=$(printf "%s:%s" "$MATCH_GIT_USERNAME" "$MATCH_GIT_PAT" | base64)
-          echo "b64=$base64_only" >> "$GITHUB_OUTPUT"
+          b64=$(printf "%s:%s" "$MATCH_GIT_USERNAME" "$MATCH_GIT_PAT" | base64)
+          echo "b64=$b64" >> "$GITHUB_OUTPUT"
 
-      # Optional quick sanity: should NOT print 'Basic' as first 5 chars
-      - name: Debug auth header prefix
+      # Guard: fail early if prefix is wrong
+      - name: Sanity-check base64 token
+        shell: bash
         run: |
-          echo "First 5 chars of auth: ${MATCH_GIT_BASIC_AUTHORIZATION:0:5:-}"
+          if [[ "${TOKEN_B64}" == Basic* ]]; then
+            echo "ERROR: Token starts with 'Basic'. We need base64 only." >&2
+            exit 1
+          fi
         env:
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ steps.basicauth.outputs.b64 }}
+          TOKEN_B64: ${{ steps.basicauth.outputs.b64 }}
 
       - name: Build & upload to TestFlight
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ steps.basicauth.outputs.b64 }}  # base64 only
+          # ✅ New env var name used by Fastfile
+          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.b64 }}
         run: bundle exec fastlane ios beta
 
       - name: Archive artifacts (ipa, logs)
