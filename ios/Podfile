@@ -1,5 +1,3 @@
-# ios/Podfile
-
 platform :ios, '13.0'
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
@@ -9,19 +7,13 @@ project 'Runner', {
   'Release' => :release,
 }
 
-# Helper to resolve Flutter root correctly on macOS runners
+# Helper: find Flutter SDK
 def flutter_root
-  # 1. Prefer env var from workflow
   env_root = ENV['FLUTTER_ROOT']
-  if env_root && !env_root.empty?
-    return env_root.gsub('\\','/') # normalize Windows backslashes
-  end
+  return env_root.gsub('\\','/') if env_root && !env_root.empty?
 
-  # 2. Fallback: read from Generated.xcconfig
   generated = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-  unless File.exist?(generated)
-    raise "Generated.xcconfig must exist. Run 'flutter pub get' first."
-  end
+  raise "Generated.xcconfig must exist. Run 'flutter pub get' first." unless File.exist?(generated)
 
   File.foreach(generated) do |line|
     m = line.match(/FLUTTER_ROOT\=(.*)/)
@@ -31,7 +23,6 @@ def flutter_root
   raise "FLUTTER_ROOT not found in Generated.xcconfig."
 end
 
-# Require Flutter's CocoaPods helper
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
 flutter_ios_podfile_setup
@@ -43,33 +34,24 @@ target 'Runner' do
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
-# ⬇️ Post-install hooks
+# Ensure all pods + Runner project have consistent settings
 post_install do |installer|
-  # 1. Prevent signing for Pods (Pods-Runner should not use provisioning)
-  installer.pods_project.targets.each do |t|
-    t.build_configurations.each do |bc|
-      bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-      bc.build_settings['CODE_SIGNING_ALLOWED']  = 'NO'
-      bc.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
-      bc.build_settings['CODE_SIGN_STYLE']       = 'Automatic'
-      bc.build_settings['CODE_SIGN_IDENTITY']    = ''
-      bc.build_settings['EXPANDED_CODE_SIGN_IDENTITY'] = ''
-    end
+  # Apply Flutter’s default build settings to pods
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
   end
 
-  # 2. Fix [CP] Check Pods Manifest.lock → point to ios/Podfile.lock
-  installer.user_project.targets.each do |t|
-    if t.name == 'Runner'
-      t.build_configurations.each do |bc|
-        bc.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] ||= 'YES'
-        bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-        bc.build_settings['PODS_PODFILE_DIR_PATH'] = '${SRCROOT}'
+  # Apply settings to the Runner project via aggregate_targets
+  installer.aggregate_targets.each do |agg|
+    next if agg.user_project.nil?
+    agg.user_project.targets.each do |t|
+      t.build_configurations.each do |config|
+        # Exclude old sim archs (avoids M1 build errors)
+        config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'i386'
+
+        # Set consistent minimum deployment target
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
       end
     end
-  end
-
-  # 3. Extra analyzer setting (optional)
-  installer.pods_project.build_configurations.each do |config|
-    config.build_settings['CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED'] = 'YES'
   end
 end
