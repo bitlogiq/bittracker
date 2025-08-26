@@ -1,3 +1,6 @@
-git_url(ENV["MATCH_GIT_URL"])
+# Use secrets and SSH; do NOT hardcode HTTP URLs here.
+git_url(ENV["MATCH_GIT_URL"])         # e.g. git@github.com:bitlogiq/ios-cert-store.git
+git_branch("main")                    # change to "master" if your cert repo uses master
 type("appstore")
 readonly(true)
+storage_mode("git")
