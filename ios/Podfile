@@ -43,9 +43,9 @@ target 'Runner' do
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
-# ⬇️ Top-level post_install (applies globally, not just inside target)
+# ⬇️ Post-install hooks
 post_install do |installer|
-  # 1. Prevent signing for Pods (Pods-Runner should never try to use profiles)
+  # 1. Prevent signing for Pods (Pods-Runner should not use provisioning)
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |bc|
       bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
@@ -57,11 +57,10 @@ post_install do |installer|
     end
   end
 
-  # 2. Ensure Runner target has PODS_PODFILE_DIR_PATH set correctly
-  installer.generated_projects.each do |project|
-    project.targets.each do |target|
-      next unless target.name == 'Runner'
-      target.build_configurations.each do |bc|
+  # 2. Fix [CP] Check Pods Manifest.lock → point to ios/Podfile.lock
+  installer.user_project.targets.each do |t|
+    if t.name == 'Runner'
+      t.build_configurations.each do |bc|
         bc.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] ||= 'YES'
         bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
         bc.build_settings['PODS_PODFILE_DIR_PATH'] = '${SRCROOT}'
