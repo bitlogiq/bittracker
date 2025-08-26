@@ -1,0 +1,6 @@
+# fastlane/Matchfile
+git_url ENV['MATCH_GIT_URL']
+storage_mode("git")
+type("appstore")
+app_identifier([ENV['APP_IDENTIFIER']])
+git_basic_authorization ENV['MATCH_GIT_TOKEN'] if ENV['MATCH_GIT_TOKEN']
