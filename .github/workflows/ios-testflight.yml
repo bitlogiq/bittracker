@@ -2,8 +2,6 @@ name: iOS TestFlight
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   ios-testflight:
@@ -13,12 +11,15 @@ jobs:
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
       APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
+
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                 # SSH URL: git@github.com:bitlogiq/ios-cert-store.git
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
+
       CI: "true"
       FASTLANE_SKIP_CONFIRMATIONS: "1"
       GIT_TERMINAL_PROMPT: "0"
@@ -71,7 +72,6 @@ jobs:
           echo "---- ios/Gemfile ----"
           test -f ios/Gemfile && echo "Gemfile present"
 
-      # Run FROM ios/ with bundle exec so Fastfile is found
       - name: Build & upload to TestFlight
         working-directory: ios
         env:
