@@ -9,15 +9,15 @@ project 'Runner', {
   'Release' => :release,
 }
 
-# Resolve FLUTTER_ROOT reliably (works on CI/macOS)
+# Helper to resolve Flutter root correctly on macOS runners
 def flutter_root
-  # 1) Prefer env var from the workflow
+  # 1. Prefer env var from workflow
   env_root = ENV['FLUTTER_ROOT']
   if env_root && !env_root.empty?
-    return env_root.gsub('\\','/')
+    return env_root.gsub('\\','/') # normalize Windows backslashes
   end
 
-  # 2) Fallback to Generated.xcconfig written by `flutter pub get`
+  # 2. Fallback: read from Generated.xcconfig
   generated = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
   unless File.exist?(generated)
     raise "Generated.xcconfig must exist. Run 'flutter pub get' first."
@@ -31,28 +31,24 @@ def flutter_root
   raise "FLUTTER_ROOT not found in Generated.xcconfig."
 end
 
-# Pull in Flutter's CocoaPods helpers
+# Require Flutter's CocoaPods helper
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  # Static frameworks = fastest & friendliest with Flutter
-  use_frameworks! :linkage => :static
+  use_frameworks!
   use_modular_headers!
 
-  # Add all Flutter plugin pods
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
-# ⬇️ Top-level post_install (NOT inside target)
+# ⬇️ Top-level post_install (applies globally, not just inside target)
 post_install do |installer|
-  # Ensure all pods use the same minimum iOS version
+  # 1. Prevent signing for Pods (Pods-Runner should never try to use profiles)
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |bc|
       bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-
-      # ❌ Never sign Pods; only the app target (Runner) is signed in CI
       bc.build_settings['CODE_SIGNING_ALLOWED']  = 'NO'
       bc.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
       bc.build_settings['CODE_SIGN_STYLE']       = 'Automatic'
@@ -61,18 +57,19 @@ post_install do |installer|
     end
   end
 
-  # Keep the main app target modern & compatible with Xcode 15+
+  # 2. Ensure Runner target has PODS_PODFILE_DIR_PATH set correctly
   installer.generated_projects.each do |project|
     project.targets.each do |target|
       next unless target.name == 'Runner'
       target.build_configurations.each do |bc|
         bc.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] ||= 'YES'
         bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+        bc.build_settings['PODS_PODFILE_DIR_PATH'] = '${SRCROOT}'
       end
     end
   end
 
-  # Minor analyzer cleanup to reduce warnings noise
+  # 3. Extra analyzer setting (optional)
   installer.pods_project.build_configurations.each do |config|
     config.build_settings['CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED'] = 'YES'
   end
