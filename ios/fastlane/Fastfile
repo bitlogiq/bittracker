@@ -3,39 +3,43 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload to TestFlight"
   lane :beta do
+    # App Store Connect API key from env
     api_key = app_store_connect_api_key(
       key_id:      ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id:   ENV["APP_STORE_CONNECT_ISSUER_ID"],
-      key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
+      key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"], # full PEM with BEGIN/END
       is_key_content_base64: false,
       duration: 1200,
       in_house: false
     )
 
-    # Remove any accidental "Basic " prefix from the env var (defensive)
+    # Pass ONLY base64(username:token) to match (defensively strip any accidental "Basic ")
     basicauth_b64 = ENV["MATCH_GIT_BASIC_AUTHORIZATION"].to_s.sub(/^Basic\s+/i, "")
 
     match(
       type: "appstore",
       readonly: true,
       storage_mode: "git",
-      git_url: ENV["MATCH_GIT_URL"],            # https URL
-      git_branch: "main",                       # change if your cert repo uses master
-      git_basic_authorization: basicauth_b64,   # <-- pass ONLY base64, no "Basic "
+      git_url: ENV["MATCH_GIT_URL"],            # HTTPS repo URL
+      git_branch: "main",                       # change to "master" if your cert repo uses master
+      git_basic_authorization: basicauth_b64,   # base64 only, no "Basic " prefix
       api_key: api_key,
       app_identifier: [ENV["APP_IDENTIFIER"]],
       team_id: ENV["TEAM_ID"],
       username: ENV["APPLE_ID"]
     )
 
+    # Avoid duplicate build numbers on TestFlight
     increment_build_number(xcodeproj: "Runner.xcodeproj")
 
+    # Build (we run from ios/ in CI)
     build_app(
       scheme: "Runner",
       workspace: "Runner.xcworkspace",
       export_method: "app-store"
     )
 
+    # Upload to TestFlight
     upload_to_testflight(
       api_key: api_key,
       skip_waiting_for_build_processing: true,
