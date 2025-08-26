@@ -13,20 +13,24 @@ jobs:
         shell: bash
 
     env:
+      # App / team
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
       TEAM_ID: R4R4AW7JUQ
 
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+      # fastlane match (secrets you created in GitHub)
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
+      # Authenticated URL for the cert repo (replace owner/repo if different)
+      MATCH_GIT_URL: https://x-access-token:${{ secrets.MATCH_GIT_TOKEN }}@github.com/bitlogiq/ios-cert-store.git
 
-      ASC_KEY_ID:        ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID:     ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}
-
+      # App Store Connect API key (p8 contents in a secret; base64 or raw)
+      ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8:    ${{ secrets.ASC_KEY_P8 }}
       APP_STORE_CONNECT_API_KEY_PATH: ${{ github.workspace }}/appstore_connect_api_key.json
 
-      # Point Bundler at ios/Gemfile
-      BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
+      # Ensure bundler uses the root Gemfile (commit a Gemfile at repo root)
+      BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
 
     steps:
       - name: Checkout
@@ -37,51 +41,41 @@ jobs:
         with:
           channel: stable
 
-      - name: Flutter packages
+      - name: Flutter pub get
         run: |
           set -euo pipefail
+          flutter --version
           flutter pub get
 
-      - name: Set up Ruby (with Bundler)
+      - name: Set up Ruby (Bundler pinned)
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
           bundler: '2.4.19'
           bundler-cache: true
 
-      - name: Bundle install (ios Gemfile)
-        working-directory: ios
+      - name: Bundle install (root Gemfile)
         run: |
           set -euo pipefail
           bundle install --jobs 4 --retry 3
 
-      - name: Prepare App Store Connect API key file
+      - name: Write App Store Connect API key file
         run: |
           set -euo pipefail
-          # Try base64 decode first, fall back to raw text
+          # Try base64 decode; if it fails, write raw
           if echo "$ASC_KEY_P8" | base64 --decode > "$APP_STORE_CONNECT_API_KEY_PATH" 2>/dev/null; then
-            true
+            :
           else
-            echo "$ASC_KEY_P8" > "$APP_STORE_CONNECT_API_KEY_PATH"
+            printf "%s" "$ASC_KEY_P8" > "$APP_STORE_CONNECT_API_KEY_PATH"
           fi
 
-      - name: CocoaPods (install)
+      - name: CocoaPods install
         working-directory: ios
         run: |
           set -euo pipefail
           bundle exec pod install --verbose
 
-      - name: Show environment (debug)
-        run: |
-          set -euo pipefail
-          which ruby
-          ruby -v
-          bundle -v
-          pod --version || true
-          gem env
-
       - name: Build & upload with fastlane
-        working-directory: ios
         run: |
           set -euo pipefail
           bundle exec fastlane ios ci
