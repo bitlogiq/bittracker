@@ -8,18 +8,20 @@ jobs:
     runs-on: macos-14
 
     env:
+      # App metadata
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
       APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
 
+      # App Store Connect API (secrets)
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
 
-      # SSH-based match (NO BASIC AUTH HERE)
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                 # git@github.com:bitlogiq/ios-cert-store.git
+      # match via SSH deploy key
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                 # must be SSH: git@github.com:bitlogiq/ios-cert-store.git
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
+      MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }} # entire private key text (no passphrase)
 
       CI: "true"
       FASTLANE_SKIP_CONFIRMATIONS: "1"
@@ -65,13 +67,36 @@ jobs:
           bundle exec pod repo update
           bundle exec pod install
 
+      # 🔐 Load SSH key so git@github.com clones work
+      - name: Configure SSH for match repo
+        env:
+          MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$MATCH_GIT_PRIVATE_KEY" > ~/.ssh/match_key
+          chmod 600 ~/.ssh/match_key
+          # Optional SSH config to force using this key for GitHub
+          cat >> ~/.ssh/config <<'EOF'
+          Host github.com
+            HostName github.com
+            IdentityFile ~/.ssh/match_key
+            IdentitiesOnly yes
+            AddKeysToAgent yes
+          EOF
+          # Start agent and add key
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/match_key
+          # Trust GitHub host key
+          ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          # Quick check
+          ssh -o StrictHostKeyChecking=no -T git@github.com || true
+
       - name: Debug layout
         run: |
-          pwd && ls -la
-          echo "---- ios/fastlane ----"
+          echo "MATCH_GIT_URL=${MATCH_GIT_URL}"
+          echo "Expecting SSH (should start with git@github.com:)"
           ls -la ios/fastlane || true
-          echo "---- Match env check ----"
-          echo "URL scheme: ${MATCH_GIT_URL%%:*}"  # will print 'git@github.com' start if SSH is set
 
       - name: Build & upload to TestFlight
         working-directory: ios
