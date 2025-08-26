@@ -13,7 +13,7 @@ jobs:
       APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
 
-      # App Store Connect API (secrets)
+      # App Store Connect API (secrets you already have)
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
@@ -21,10 +21,8 @@ jobs:
       # match via HTTPS + PAT
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-
-      # Build the Basic header on the runner (avoids formatting mistakes)
-      MATCH_GIT_USERNAME: ${{ secrets.MATCH_GIT_USERNAME }}  # your GitHub username
-      MATCH_GIT_PAT:      ${{ secrets.MATCH_GIT_PAT }}       # PAT with repo:read (or repo) scope
+      MATCH_GIT_USERNAME: ${{ secrets.MATCH_GIT_USERNAME }}
+      MATCH_GIT_PAT:      ${{ secrets.MATCH_GIT_PAT }}
 
       # CI hygiene
       CI: "true"
@@ -78,12 +76,6 @@ jobs:
         run: |
           header=$(printf "%s:%s" "$MATCH_GIT_USERNAME" "$MATCH_GIT_PAT" | base64)
           echo "header=Basic $header" >> "$GITHUB_OUTPUT"
-
-      - name: Debug layout
-        run: |
-          echo "Using HTTPS + Basic auth to clone cert repo"
-          echo "MATCH_GIT_URL=${MATCH_GIT_URL}"
-          ls -la ios/fastlane || true
 
       - name: Build & upload to TestFlight
         working-directory: ios
