@@ -51,13 +51,13 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      # Ruby + Bundler (we’ll install using ios/Gemfile)
+      # Ruby + Bundler using ios/Gemfile
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
 
-      - name: Bundle install (using ios/Gemfile)
+      - name: Bundle install (fastlane/cocoapods)
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
@@ -77,11 +77,11 @@ jobs:
           echo "---- ios/fastlane ----"
           ls -la ios/fastlane
 
-      # IMPORTANT: run from ios/ and use bundle exec
+      # IMPORTANT: run from ios/ and use bundle exec so Fastfile is found
       - name: Build & upload to TestFlight
         working-directory: ios
         env:
-          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
+          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile }
         run: bundle exec fastlane ios beta
 
       - name: Archive artifacts (ipa, logs)
