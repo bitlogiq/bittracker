@@ -6,20 +6,22 @@ platform :ios do
     api_key = app_store_connect_api_key(
       key_id:      ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id:   ENV["APP_STORE_CONNECT_ISSUER_ID"],
-      key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"], # full PEM with BEGIN/END
+      key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
       is_key_content_base64: false,
       duration: 1200,
       in_house: false
     )
 
-    # ✅ Use HTTPS repo + PAT for match
+    # Remove any accidental "Basic " prefix from the env var (defensive)
+    basicauth_b64 = ENV["MATCH_GIT_BASIC_AUTHORIZATION"].to_s.sub(/^Basic\s+/i, "")
+
     match(
       type: "appstore",
       readonly: true,
       storage_mode: "git",
-      git_url: ENV["MATCH_GIT_URL"],                       # now HTTPS, not SSH
-      git_branch: "main",                                  # or "master" if your cert repo uses master
-      git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"], # built in workflow
+      git_url: ENV["MATCH_GIT_URL"],            # https URL
+      git_branch: "main",                       # change if your cert repo uses master
+      git_basic_authorization: basicauth_b64,   # <-- pass ONLY base64, no "Basic "
       api_key: api_key,
       app_identifier: [ENV["APP_IDENTIFIER"]],
       team_id: ENV["TEAM_ID"],
