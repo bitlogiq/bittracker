@@ -3,7 +3,7 @@ default_platform(:ios)
 platform :ios do
   desc "CI lane to build and upload to TestFlight"
   lane :ci do
-    # 1. Create a temporary keychain for CI
+    # --- Temporary CI keychain ---
     create_keychain(
       name: "ci_tmp",
       default_keychain: true,
@@ -13,10 +13,19 @@ platform :ios do
       password: "temp_password_123"
     )
 
-    # 2. Fetch certificates & provisioning profiles using match
+    # --- App Store Connect API key (from GitHub Secrets) ---
+    app_store_connect_api_key(
+      key_id:          ENV["ASC_KEY_ID"],
+      issuer_id:       ENV["ASC_ISSUER_ID"],
+      key_content:     ENV["ASC_PRIVATE_KEY"], # PEM content, not base64
+      is_key_content_base64: false,
+      in_house:        false
+    )
+
+    # --- Sync signing with match ---
     match(
-      type: "appstore", # App Store / TestFlight distribution
-      readonly: false,  # CI can create if profiles don’t exist
+      type: "appstore",
+      readonly: false, # allow CI to create/update on first run
       app_identifier: "za.co.bitlogiq.bittracker",
       git_url: ENV["MATCH_GIT_URL"],
       git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"],
@@ -24,21 +33,32 @@ platform :ios do
       keychain_password: "temp_password_123"
     )
 
-    # 3. Build the app
+    # --- Build (gym) ---
     build_app(
+      workspace: "Runner.xcworkspace",
       scheme: "Runner",
       configuration: "Release",
       export_method: "app-store",
       clean: true,
       output_directory: "build",
-      output_name: "BitTracker.ipa",
-      xcargs: "DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} CODE_SIGN_STYLE=Manual"
+      output_name: "BitTracker",
+      include_bitcode: false,
+      # Allow Xcode to pick the matched provisioning profiles
+      # Ensure your Apple Team ID is correct here:
+      xcargs: "DEVELOPMENT_TEAM=R4R4AW7JUQ -allowProvisioningUpdates"
     )
 
-    # 4. Upload to TestFlight
+    # --- Upload to TestFlight ---
     upload_to_testflight(
       skip_submission: true,
       skip_waiting_for_build_processing: true
     )
+  ensure
+    # Always try to remove the temporary keychain
+    begin
+      delete_keychain(name: "ci_tmp")
+    rescue => e
+      UI.message("Keychain cleanup skipped: #{e}")
+    end
   end
 end
