@@ -3,7 +3,7 @@ default_platform(:ios)
 platform :ios do
   desc "CI lane to build and upload to TestFlight"
   lane :ci do
-    # Create a temp keychain for CI
+    # 1. Create a temporary keychain for CI
     create_keychain(
       name: "ci_tmp",
       default_keychain: true,
@@ -13,28 +13,29 @@ platform :ios do
       password: "temp_password_123"
     )
 
-    # Sync certificates & provisioning profiles with match
+    # 2. Fetch certificates & provisioning profiles using match
     match(
-      type: "appstore", # We want App Store distribution
-      readonly: false,  # First run will create profiles if needed
+      type: "appstore", # App Store / TestFlight distribution
+      readonly: false,  # CI can create if profiles don’t exist
       app_identifier: "za.co.bitlogiq.bittracker",
       git_url: ENV["MATCH_GIT_URL"],
-      git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"], # optional
+      git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"],
       keychain_name: "ci_tmp",
       keychain_password: "temp_password_123"
     )
 
-    # Build the app for TestFlight
+    # 3. Build the app
     build_app(
       scheme: "Runner",
       configuration: "Release",
       export_method: "app-store",
-      xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=R4R4AW7JUQ",
+      clean: true,
       output_directory: "build",
-      output_name: "BitTracker.ipa"
+      output_name: "BitTracker.ipa",
+      xcargs: "DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} CODE_SIGN_STYLE=Manual"
     )
 
-    # Upload to TestFlight
+    # 4. Upload to TestFlight
     upload_to_testflight(
       skip_submission: true,
       skip_waiting_for_build_processing: true
