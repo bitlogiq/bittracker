@@ -1,7 +1,7 @@
 name: iOS TestFlight
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # run manually only
 
 jobs:
   ios-testflight:
@@ -11,24 +11,27 @@ jobs:
         shell: bash
 
     env:
+      # App metadata
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
       TEAM_ID: R4R4AW7JUQ
 
-      # fastlane match repo & credentials
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}          # e.g. https://github.com/<org>/<repo>.git (NO trailing slash)
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}        # match encryption password
-      MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}      # GitHub PAT with "repo" scope (and SSO enabled if needed)
+      # fastlane match (certs repo)
+      MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }} # "Basic base64(username:token)"
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-      # App Store Connect API key (from Apple)
+      # App Store Connect API key (key_id, issuer_id, and the .p8 content as raw or base64)
       ASC_KEY_ID:        ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID:     ${{ secrets.ASC_ISSUER_ID }}
       ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}
 
-      # Where we’ll write the .p8 file for fastlane to read
-      APP_STORE_CONNECT_API_KEY_PATH: ${{ github.workspace }}/appstore_connect_api_key.json
-
-      # Use root Gemfile no matter the working-directory
+      # Ruby uses the root Gemfile even if we cd into ios/
       BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
+
+      # Avoid any interactive prompts in CI
+      CI: "true"
+      FASTLANE_SKIP_CONFIRMATIONS: "1"
+      GIT_TERMINAL_PROMPT: "0"
 
     steps:
       - name: Checkout
@@ -56,28 +59,11 @@ jobs:
           set -euo pipefail
           bundle install --jobs 4 --retry 3
 
-      - name: Write App Store Connect API key (.p8) to file
-        run: |
-          set -euo pipefail
-          # ASC_KEY_P8 can be raw .p8 or base64-encoded; try decode first
-          if echo "$ASC_KEY_P8" | base64 --decode > "$APP_STORE_CONNECT_API_KEY_PATH" 2>/dev/null; then
-            :
-          else
-            echo "$ASC_KEY_P8" > "$APP_STORE_CONNECT_API_KEY_PATH"
-          fi
-
       - name: CocoaPods install
         working-directory: ios
         run: |
           set -euo pipefail
           bundle exec pod install --verbose
-
-      - name: Build Basic Auth header for match
-        run: |
-          set -euo pipefail
-          # Build Base64("x-access-token:<PAT>")
-          printf "x-access-token:%s" "${MATCH_GIT_TOKEN}" | base64 > basic_auth.b64
-          echo "MATCH_GIT_BASIC_AUTHORIZATION=$(cat basic_auth.b64)" >> "$GITHUB_ENV"
 
       - name: Build & upload with fastlane
         run: |
