@@ -30,6 +30,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate required secrets
+        shell: bash
         run: |
           set -e
           fail=0
@@ -44,6 +45,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
       - name: Flutter precache & pub get
+        shell: bash
         run: |
           flutter precache --ios
           flutter pub get
@@ -54,6 +56,7 @@ jobs:
           ruby-version: "3.2"
 
       - name: Install gems
+        shell: bash
         run: |
           gem install --no-document fastlane -v ">=2.222"
           gem install --no-document cocoapods -v "~>1.15"
@@ -62,6 +65,7 @@ jobs:
 
       - name: Pod install
         working-directory: ios
+        shell: bash
         run: |
           pod repo update
           pod install
@@ -84,7 +88,7 @@ jobs:
         shell: bash
         run: shasum -a 256 dist.p12
 
-      # --- Prove the password BEFORE we touch the keychain ---
+      # --- Prove the p12 password BEFORE touching the keychain ---
       - name: Verify p12 password (sanity check)
         shell: bash
         run: |
@@ -92,7 +96,7 @@ jobs:
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nokeys -clcerts -info >/dev/null
           echo "✅ p12 password OK"
 
-      # --- Create temp keychain & import cert/key (workaround for PKCS12 MAC issues) ---
+      # --- Create temp keychain & import cert/key (workaround for PKCS#12 MAC issues) ---
       - name: Install signing via PEM
         shell: bash
         run: |
@@ -124,9 +128,30 @@ jobs:
           echo "PROFILE_NAME=$NAME" >> $GITHUB_ENV
           echo "✅ Installed profile: $NAME ($UUID)"
 
-      - name: Show code signing identities
+      - name: Debug • Identities present
         shell: bash
-        run: security find-identity -v -p codesigning build.keychain || true
+        run: |
+          security find-identity -v -p codesigning build.keychain || true
+
+      - name: Debug • Profile vs secrets
+        shell: bash
+        run: |
+          set -e
+          PLIST=$(/usr/bin/security cms -D -i app.mobileprovision)
+          TEAM_FROM_PROFILE=$(echo "$PLIST" | /usr/libexec/PlistBuddy -c 'Print :ApplicationIdentifierPrefix:0' /dev/stdin)
+          APPID_FROM_PROFILE=$(echo "$PLIST" | /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin)
+          BUNDLE_FROM_PROFILE=${APPID_FROM_PROFILE#*.}
+          echo "Profile Team:      $TEAM_FROM_PROFILE"
+          echo "Profile AppID:     $APPID_FROM_PROFILE"
+          echo "Profile BundleID:  $BUNDLE_FROM_PROFILE"
+          echo "Secrets Team:      ${APPLE_TEAM_ID}"
+          echo "Secrets BundleID:  ${IOS_BUNDLE_ID}"
+          if [ "$TEAM_FROM_PROFILE" != "${APPLE_TEAM_ID}" ]; then
+            echo "::error ::Team ID mismatch (profile=${TEAM_FROM_PROFILE}, secret=${APPLE_TEAM_ID})"
+          fi
+          if [ "$BUNDLE_FROM_PROFILE" != "${IOS_BUNDLE_ID}" ]; then
+            echo "::error ::Bundle ID mismatch (profile=${BUNDLE_FROM_PROFILE}, secret=${IOS_BUNDLE_ID})"
+          fi
 
       # --- Write a VALID XML exportOptions.plist and lint it ---
       - name: Create exportOptions.plist (XML)
@@ -147,11 +172,10 @@ jobs:
             </dict>
           </plist>
           PLIST
-          echo "Linting exportOptions.plist…"
           /usr/bin/plutil -lint exportOptions.plist
-          echo "✅ exportOptions.plist is valid"
 
       - name: Bump build number
+        shell: bash
         run: |
           fastlane run increment_build_number \
             xcodeproj:"ios/Runner.xcodeproj" \
@@ -182,6 +206,7 @@ jobs:
           ls -la ios/build || true
 
       - name: Upload to TestFlight
+        shell: bash
         run: |
           fastlane run upload_to_testflight \
             api_key_path:"AuthKey.json" \
@@ -189,11 +214,18 @@ jobs:
             distribute_external:false
           echo "✅ Upload to TestFlight initiated"
 
-      - name: Debug • What did we build?
-        if: always()
+      - name: Debug • Tail xcodebuild log
+        if: failure()
+        shell: bash
         run: |
-          echo "== ios/build =="; ls -lah ios/build || true
-          echo "== Logs =="; ls -lah /Users/runner/Library/Logs/gym || true
+          LOG="/Users/runner/Library/Logs/gym/Runner-Runner.log"
+          if [ -f "$LOG" ]; then
+            echo "---- tail of $LOG ----"
+            tail -n 200 "$LOG"
+            echo "----------------------"
+          else
+            echo "No gym log found at $LOG"
+          fi
 
       - name: Upload IPA & logs
         if: always()
