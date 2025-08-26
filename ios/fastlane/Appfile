@@ -1,0 +1,5 @@
+# fastlane/Appfile
+app_identifier ENV['APP_IDENTIFIER']
+team_id        ENV['TEAM_ID']
+# apple_id ENV['APPLE_ID']        # if you want
+# itc_team_id ENV['ITC_TEAM_ID']  # if n
