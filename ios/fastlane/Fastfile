@@ -3,7 +3,6 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload to TestFlight"
   lane :beta do
-    # App Store Connect API key from env
     api_key = app_store_connect_api_key(
       key_id:      ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id:   ENV["APP_STORE_CONNECT_ISSUER_ID"],
@@ -13,8 +12,12 @@ platform :ios do
       in_house: false
     )
 
-    # Pass ONLY base64(username:token) to match (defensively strip any accidental "Basic ")
-    basicauth_b64 = ENV["MATCH_GIT_BASIC_AUTHORIZATION"].to_s.sub(/^Basic\s+/i, "")
+    # 🚫 Do NOT use MATCH_GIT_BASIC_AUTHORIZATION anymore.
+    # ✅ Use our new var name to avoid any old secrets bleeding in.
+    basicauth_b64 = (ENV["MATCH_GIT_BASIC_AUTH_B64"] || "").sub(/^Basic\s+/i, "")
+    if basicauth_b64.empty?
+      UI.crash!("MATCH_GIT_BASIC_AUTH_B64 is empty. Check the workflow step that sets it.")
+    end
 
     match(
       type: "appstore",
@@ -22,24 +25,21 @@ platform :ios do
       storage_mode: "git",
       git_url: ENV["MATCH_GIT_URL"],            # HTTPS repo URL
       git_branch: "main",                       # change to "master" if your cert repo uses master
-      git_basic_authorization: basicauth_b64,   # base64 only, no "Basic " prefix
+      git_basic_authorization: basicauth_b64,   # base64 only (no "Basic ")
       api_key: api_key,
       app_identifier: [ENV["APP_IDENTIFIER"]],
       team_id: ENV["TEAM_ID"],
       username: ENV["APPLE_ID"]
     )
 
-    # Avoid duplicate build numbers on TestFlight
     increment_build_number(xcodeproj: "Runner.xcodeproj")
 
-    # Build (we run from ios/ in CI)
     build_app(
       scheme: "Runner",
       workspace: "Runner.xcworkspace",
       export_method: "app-store"
     )
 
-    # Upload to TestFlight
     upload_to_testflight(
       api_key: api_key,
       skip_waiting_for_build_processing: true,
