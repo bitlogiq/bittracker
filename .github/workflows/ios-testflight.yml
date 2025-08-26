@@ -1,8 +1,7 @@
 name: iOS TestFlight
 
 on:
-  # Manual only (no auto runs on push)
-  workflow_dispatch:
+  workflow_dispatch:  # manual only
 
 jobs:
   ios-testflight:
@@ -15,24 +14,26 @@ jobs:
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
       TEAM_ID: R4R4AW7JUQ
 
-      # fastlane match repo + auth
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
       MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      # This is the Basic auth "username:token" string (match will base64 it)
       MATCH_GIT_BASIC_AUTHORIZATION: username:${{ secrets.MATCH_GIT_TOKEN }}
 
-      # App Store Connect API key (p8 contents as base64), key id, issuer id
       ASC_KEY_ID:        ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID:     ${{ secrets.ASC_ISSUER_ID }}
       ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}
 
-      # Use the root Gemfile
       BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify fastlane files exist
+        run: |
+          set -euo pipefail
+          ls -la ios/fastlane || true
+          test -f ios/fastlane/Fastfile || (echo "Missing ios/fastlane/Fastfile" && exit 1)
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -63,7 +64,12 @@ jobs:
           set -euo pipefail
           bundle exec pod install --verbose
 
-      - name: Build & upload with fastlane
+      - name: Build & upload with fastlane (run from ios/)
+        working-directory: ios
+        env:
+          FASTLANE_SKIP_CONFIRMATIONS: "1"
+          LC_ALL: "en_US.UTF-8"
+          LANG: "en_US.UTF-8"
         run: |
           set -euo pipefail
           bundle exec fastlane ios ci
