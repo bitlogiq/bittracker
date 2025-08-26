@@ -1,19 +1,10 @@
-# Gemfile
-# This ensures CI installs the right Ruby gems for iOS builds
-
+# Gemfile — minimal for CI
 source "https://rubygems.org"
 
-# Require at least Ruby 3.2 (the GitHub macOS runners use 3.2+)
 ruby ">= 3.2.0"
 
-# Fastlane for build & TestFlight upload
-gem "fastlane", "~> 2.228"
-
-# CocoaPods for iOS dependencies
+gem "fastlane",  "~> 2.228"
 gem "cocoapods", "~> 1.16"
 
-# xcbeautify to make xcodebuild logs easier to read in CI
-gem "xcbeautify", "~> 2.30"
-
-# Optional: pin Bundler version so it matches workflow step
-gem "bundler", "~> 2.4"
+# If you prefer a Ruby-based formatter instead of Homebrew xcbeautify, uncomment:
+# gem "xcpretty", "~> 0.3"
