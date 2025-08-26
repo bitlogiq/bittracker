@@ -19,12 +19,12 @@ jobs:
       IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}   # ← fixed here
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
       IOS_P12_B64: ${{ secrets.IOS_P12_B64 }}
       IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
       IOS_MOBILEPROVISION_B64: ${{ secrets.IOS_MOBILEPROVISION_B64 }}
-      NSUnbufferedIO: "YES"
+      NSUnbufferedIO: "YES"  # flush xcodebuild logs inline
 
     steps:
       - name: Checkout repository
@@ -74,6 +74,22 @@ jobs:
           pod install
           test -d Runner.xcworkspace && echo "✅ xcworkspace present" || (echo "::error ::Runner.xcworkspace not created" && exit 1)
 
+      - name: Ensure Podfile.lock exists
+        working-directory: ios
+        shell: bash
+        run: |
+          if [ ! -f Podfile.lock ]; then
+            echo "⚠️ Podfile.lock missing — running pod install to generate it"
+            pod install
+          fi
+          if [ ! -f Podfile.lock ] && [ -f Pods/Manifest.lock ]; then
+            echo "ℹ️ Copying Pods/Manifest.lock -> Podfile.lock"
+            cp Pods/Manifest.lock Podfile.lock
+          fi
+          test -f Podfile.lock || (echo "::error ::Podfile.lock still missing after pod install"; exit 1)
+          echo "✅ Podfile.lock present"
+
+      # --- Decode secrets to files (works on both GNU and macOS base64) ---
       - name: Decode signing & ASC key
         shell: bash
         run: |
@@ -100,6 +116,7 @@ jobs:
           set -e
           KEYCHAIN=build.keychain
           PW=ci_temp_123
+
           security create-keychain -p "$PW" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$PW" "$KEYCHAIN"
@@ -167,6 +184,7 @@ jobs:
             xcodeproj:"ios/Runner.xcodeproj" \
             build_number:"${GITHUB_RUN_NUMBER}"
 
+      # Show raw xcodebuild output to surface exact failures
       - name: Build IPA (Manual signing + force Distribution identity)
         shell: bash
         run: |
@@ -186,18 +204,27 @@ jobs:
 
           ls -la ios/build || true
 
+      - name: Upload to TestFlight
+        shell: bash
+        run: |
+          fastlane run upload_to_testflight \
+            api_key_path:"AuthKey.json" \
+            skip_waiting_for_build_processing:true \
+            distribute_external:false
+          echo "✅ Upload to TestFlight initiated"
+
       - name: Debug • Tail xcodebuild/gym log
         if: failure()
         shell: bash
         run: |
           LOG="$HOME/Library/Logs/gym/Runner-Runner.log"
-          echo "---- show last 300 lines of gym log ----"
+          echo "---- last 300 lines of gym log ----"
           if [ -f "$LOG" ]; then
             tail -n 300 "$LOG" || true
           else
             echo "No gym log found at $LOG"
           fi
-          echo "----------------------------------------"
+          echo "-----------------------------------"
 
       - name: Upload IPA & logs
         if: always()
