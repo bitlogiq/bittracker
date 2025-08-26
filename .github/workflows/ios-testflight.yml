@@ -7,7 +7,7 @@ on:
 
 jobs:
   ios-testflight:
-    runs-on: macos-14
+    runs-on: macos-latest
     defaults:
       run:
         shell: bash
@@ -24,8 +24,9 @@ jobs:
       ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}
 
       APP_STORE_CONNECT_API_KEY_PATH: ${{ github.workspace }}/appstore_connect_api_key.json
-      # Use root Gemfile even when we cd into ios/
-      BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
+
+      # Point Bundler at ios/Gemfile
+      BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
 
     steps:
       - name: Checkout
@@ -35,43 +36,34 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
 
       - name: Flutter packages
         run: |
           set -euo pipefail
           flutter pub get
 
-      - name: Set up Ruby (pin Bundler)
+      - name: Set up Ruby (with Bundler)
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
           bundler: '2.4.19'
           bundler-cache: true
 
-      - name: Bundle install (root Gemfile)
+      - name: Bundle install (ios Gemfile)
+        working-directory: ios
         run: |
           set -euo pipefail
           bundle install --jobs 4 --retry 3
 
-      - name: Prepare App Store Connect API key file (JSON)
+      - name: Prepare App Store Connect API key file
         run: |
           set -euo pipefail
-          # If the secret is base64, decode it; else use as-is
-          if echo "$ASC_KEY_P8" | grep -q "BEGIN PRIVATE KEY"; then
-            KEY_CONTENT="$ASC_KEY_P8"
+          # Try base64 decode first, fall back to raw text
+          if echo "$ASC_KEY_P8" | base64 --decode > "$APP_STORE_CONNECT_API_KEY_PATH" 2>/dev/null; then
+            true
           else
-            KEY_CONTENT="$(echo "$ASC_KEY_P8" | base64 --decode)"
+            echo "$ASC_KEY_P8" > "$APP_STORE_CONNECT_API_KEY_PATH"
           fi
-
-          cat > "$APP_STORE_CONNECT_API_KEY_PATH" <<JSON
-          {
-            "key_id":   "${ASC_KEY_ID}",
-            "issuer_id":"${ASC_ISSUER_ID}",
-            "key":      "${KEY_CONTENT}",
-            "in_house": false
-          }
-          JSON
 
       - name: CocoaPods (install)
         working-directory: ios
@@ -89,10 +81,10 @@ jobs:
           gem env
 
       - name: Build & upload with fastlane
-        working-directory: ios   # ← IMPORTANT: run fastlane where the Fastfile is
+        working-directory: ios
         run: |
           set -euo pipefail
-          bundle exec fastlane ci
+          bundle exec fastlane ios ci
 
       - name: Archive artifacts (ipa, logs)
         if: always()
