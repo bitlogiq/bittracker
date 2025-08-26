@@ -94,7 +94,7 @@ jobs:
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nokeys -clcerts -info >/dev/null
           echo "✅ p12 password OK"
 
-      - name: Install signing cert & provisioning profile
+      - name: Install signing cert & provisioning profile (robust)
         shell: bash
         run: |
           set -e
@@ -106,8 +106,31 @@ jobs:
           security unlock-keychain -p "$PW" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN"
 
-          # Import P12 directly so cert + private key stay paired
-          security import dist.p12 -k "$KEYCHAIN" -P "$IOS_P12_PASSWORD" -A -T /usr/bin/codesign
+          echo "🔎 Re-checking P12 with OpenSSL (verifies password/file)"
+          if ! openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nokeys -clcerts -info >/dev/null 2>&1; then
+            echo "::error ::OpenSSL could not read the P12 with the provided password. Double-check IOS_P12_PASSWORD and base64 content."
+            exit 1
+          fi
+          echo "✅ OpenSSL verified P12"
+
+          echo "🔐 Attempt 1: security import with provided password"
+          if security import dist.p12 -k "$KEYCHAIN" -P "$IOS_P12_PASSWORD" -A -T /usr/bin/codesign >/dev/null 2>&1; then
+            echo "✅ Imported P12 with provided password"
+          else
+            echo "🔐 Attempt 2: security import with EMPTY password (some P12s are unprotected)"
+            if security import dist.p12 -k "$KEYCHAIN" -P "" -A -T /usr/bin/codesign >/dev/null 2>&1; then
+              echo "✅ Imported P12 with empty password"
+            else
+              echo "🧰 Attempt 3: fallback to split-import via PEM (cert + key)"
+              openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -clcerts -nokeys -out dist_cert.pem
+              openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nocerts -nodes -out dist_key.pem
+              security import dist_cert.pem -k "$KEYCHAIN" -A -T /usr/bin/codesign
+              security import dist_key.pem  -k "$KEYCHAIN" -A -T /usr/bin/codesign
+              echo "✅ Imported cert and key as PEM"
+            fi
+          fi
+
+          # Allow codesign to use keys non-interactively
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KEYCHAIN"
           security find-identity -v -p codesigning "$KEYCHAIN" || true
 
