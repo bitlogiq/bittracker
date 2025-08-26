@@ -6,50 +6,65 @@ on:
     branches: [ main ]
 
 jobs:
-  build-and-upload:
+  ios:
     runs-on: macos-14
 
     env:
-      IOS_BUNDLE_ID: za.co.bitlogiq.bittracker
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+      # App + signing info (set these in GitHub Secrets)
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+      ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}  # PEM content, not base64
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
 
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
-
-      # If your repo has a Gemfile, this will install fastlane/cocoapods via bundler.
-      # If you don't have a Gemfile, uncomment the two "gem install" lines below instead.
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-          bundler-cache: true
-
-      # - name: Install fastlane & cocoapods (no Gemfile)
-      #   run: |
-      #     sudo gem install fastlane -N
-      #     sudo gem install cocoapods -N
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: '3.35.1'
+          channel: 'stable'
+          cache: true
 
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Ensure CocoaPods installed & install pods
+      # --- CocoaPods setup ---
+      - name: Install CocoaPods
         run: |
-          sudo gem install cocoapods -N || true
-          cd ios
-          pod install
+          sudo gem install cocoapods -N
+          pod --version
 
-      # Build & upload via Fastlane lane `ci` from fastlane/Fastfile
-      - name: Fastlane CI lane
+      - name: Pod install
+        working-directory: ios
+        run: pod install --repo-update
+
+      - name: Cache Pods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ios/Podfile.lock
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      # --- Fastlane ---
+      - name: Install fastlane
+        run: sudo gem install fastlane -N
+
+      - name: Build & upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
         run: |
-          bundle exec fastlane ios ci || fastlane ios ci
+          cd ios
+          fastlane ci
