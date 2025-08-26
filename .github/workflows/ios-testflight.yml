@@ -1,9 +1,7 @@
 name: iOS TestFlight
 
 on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
+  workflow_dispatch:   # 🔥 manual trigger only
 
 jobs:
   ios-testflight:
@@ -17,14 +15,15 @@ jobs:
       TEAM_ID: R4R4AW7JUQ
 
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
       ASC_KEY_ID:        ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID:     ${{ secrets.ASC_ISSUER_ID }}
       ASC_KEY_P8:        ${{ secrets.ASC_KEY_P8 }}
 
-      APP_STORE_CONNECT_API_KEY_PATH: ${{ github.workspace }}/appstore_connect_api_key.json
+      APP_STORE_CONNECT_API_KEY_PATH: ${{ github.workspace }}/appstore_connect_api_key.p8
+
       BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
 
     steps:
@@ -37,9 +36,7 @@ jobs:
           channel: stable
 
       - name: Flutter pub get
-        run: |
-          set -euo pipefail
-          flutter pub get
+        run: flutter pub get
 
       - name: Set up Ruby (Bundler pinned)
         uses: ruby/setup-ruby@v1
@@ -49,30 +46,18 @@ jobs:
           bundler-cache: true
 
       - name: Bundle install
-        run: |
-          set -euo pipefail
-          bundle install --jobs 4 --retry 3
+        run: bundle install --jobs 4 --retry 3
 
       - name: Write App Store Connect API key (.p8) to file
         run: |
-          set -euo pipefail
-          # ASC_KEY_P8 must be the raw .p8 contents or base64 of it
-          if echo "$ASC_KEY_P8" | base64 --decode > "$APP_STORE_CONNECT_API_KEY_PATH" 2>/dev/null; then
-            :
-          else
-            echo "$ASC_KEY_P8" > "$APP_STORE_CONNECT_API_KEY_PATH"
-          fi
+          echo "$ASC_KEY_P8" | base64 --decode > "$APP_STORE_CONNECT_API_KEY_PATH"
 
       - name: CocoaPods install
         working-directory: ios
-        run: |
-          set -euo pipefail
-          bundle exec pod install --verbose
+        run: bundle exec pod install --verbose
 
       - name: Build & upload with fastlane
-        run: |
-          set -euo pipefail
-          bundle exec fastlane ios ci
+        run: bundle exec fastlane ios ci
 
       - name: Archive artifacts (ipa, logs)
         if: always()
