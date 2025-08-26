@@ -92,8 +92,8 @@ jobs:
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nokeys -clcerts -info >/dev/null
           echo "✅ p12 password OK"
 
-      # --- Create temp keychain & import cert/key (not the .p12 directly) ---
-      - name: Install signing via PEM (workaround for PKCS#12 MAC issues)
+      # --- Create temp keychain & import cert/key (workaround for PKCS12 MAC issues) ---
+      - name: Install signing via PEM
         shell: bash
         run: |
           set -e
@@ -104,18 +104,18 @@ jobs:
           security unlock-keychain -p "$PW" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN"
 
-          # 1) extract cert and key from p12 using your password
+          # Extract cert + key from p12
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -clcerts -nokeys -out dist_cert.pem
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nocerts -nodes -out dist_key.pem
 
-          # 2) import cert + key separately
+          # Import them
           security import dist_cert.pem -k "$KEYCHAIN" -A -T /usr/bin/codesign
           security import dist_key.pem  -k "$KEYCHAIN" -A -T /usr/bin/codesign
 
-          # 3) allow codesign access
+          # Allow codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KEYCHAIN"
 
-          # 4) install provisioning profile
+          # Install provisioning profile
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$(/usr/bin/security cms -D -i app.mobileprovision)")
           NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$(/usr/bin/security cms -D -i app.mobileprovision)")
@@ -128,12 +128,36 @@ jobs:
         shell: bash
         run: security find-identity -v -p codesigning build.keychain || true
 
+      # --- Write a VALID XML exportOptions.plist and lint it ---
+      - name: Create exportOptions.plist (XML)
+        shell: bash
+        run: |
+          cat > exportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+            <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                <key>${IOS_BUNDLE_ID}</key>
+                <string>${PROFILE_NAME}</string>
+              </dict>
+            </dict>
+          </plist>
+          PLIST
+          echo "Linting exportOptions.plist…"
+          /usr/bin/plutil -lint exportOptions.plist
+          echo "✅ exportOptions.plist is valid"
+
       - name: Bump build number
         run: |
           fastlane run increment_build_number \
             xcodeproj:"ios/Runner.xcodeproj" \
             build_number:"${GITHUB_RUN_NUMBER}"
 
+      # --- Build IPA (manual signing hints) ---
       - name: Build IPA
         shell: bash
         run: |
@@ -142,13 +166,6 @@ jobs:
           if [ -z "$IDENTITY" ]; then
             echo "::error ::No Apple Distribution identity found"; security find-identity -v -p codesigning build.keychain; exit 1
           fi
-
-          cat > exportOptions.plist <<PLIST
-          {
-            "method": "app-store",
-            "provisioningProfiles": { "${IOS_BUNDLE_ID}": "${PROFILE_NAME}" }
-          }
-          PLIST
 
           fastlane run build_app \
             workspace:"ios/Runner.xcworkspace" \
@@ -162,7 +179,7 @@ jobs:
             xcargs:"PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=${PROFILE_NAME}" \
             export_options:"exportOptions.plist"
 
-          ls -la ios/build
+          ls -la ios/build || true
 
       - name: Upload to TestFlight
         run: |
