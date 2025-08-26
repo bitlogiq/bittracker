@@ -8,22 +8,19 @@ jobs:
     runs-on: macos-14
 
     env:
-      # App metadata
       APP_IDENTIFIER: za.co.bitlogiq.bittracker
       APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
 
-      # App Store Connect API (secrets)
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
 
-      # match via SSH deploy key (NO basic auth)
+      # SSH-based match (NO BASIC AUTH HERE)
       MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}                 # git@github.com:bitlogiq/ios-cert-store.git
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}               # match encryption password
-      MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }} # entire private key text (no passphrase)
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
 
-      # CI hygiene
       CI: "true"
       FASTLANE_SKIP_CONFIRMATIONS: "1"
       GIT_TERMINAL_PROMPT: "0"
@@ -54,8 +51,7 @@ jobs:
         with:
           ruby-version: '3.2'
 
-      # Use Bundler from ios/Gemfile
-      - name: Bundle install (fastlane/cocoapods)
+      - name: Bundle install (using ios/Gemfile)
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
@@ -74,10 +70,9 @@ jobs:
           pwd && ls -la
           echo "---- ios/fastlane ----"
           ls -la ios/fastlane || true
-          echo "---- ios/Gemfile ----"
-          test -f ios/Gemfile && echo "Gemfile present"
+          echo "---- Match env check ----"
+          echo "URL scheme: ${MATCH_GIT_URL%%:*}"  # will print 'git@github.com' start if SSH is set
 
-      # Run FROM ios/ with bundler so Fastfile is found
       - name: Build & upload to TestFlight
         working-directory: ios
         env:
