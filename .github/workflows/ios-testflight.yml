@@ -19,12 +19,12 @@ jobs:
       IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets_APP_STORE_CONNECT_ISSUER_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}   # ← fixed here
       ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
       IOS_P12_B64: ${{ secrets.IOS_P12_B64 }}
       IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
       IOS_MOBILEPROVISION_B64: ${{ secrets.IOS_MOBILEPROVISION_B64 }}
-      NSUnbufferedIO: "YES" # flushes xcodebuild logs
+      NSUnbufferedIO: "YES"
 
     steps:
       - name: Checkout repository
@@ -74,7 +74,6 @@ jobs:
           pod install
           test -d Runner.xcworkspace && echo "✅ xcworkspace present" || (echo "::error ::Runner.xcworkspace not created" && exit 1)
 
-      # --- Decode secrets to files (works on both GNU and macOS base64) ---
       - name: Decode signing & ASC key
         shell: bash
         run: |
@@ -101,7 +100,6 @@ jobs:
           set -e
           KEYCHAIN=build.keychain
           PW=ci_temp_123
-
           security create-keychain -p "$PW" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$PW" "$KEYCHAIN"
@@ -169,7 +167,6 @@ jobs:
             xcodeproj:"ios/Runner.xcodeproj" \
             build_number:"${GITHUB_RUN_NUMBER}"
 
-      # ⚠️ No pretty formatter -> show raw xcodebuild errors inline
       - name: Build IPA (Manual signing + force Distribution identity)
         shell: bash
         run: |
