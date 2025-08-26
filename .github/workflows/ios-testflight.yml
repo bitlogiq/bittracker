@@ -29,6 +29,8 @@ jobs:
       CI: "true"
       FASTLANE_SKIP_CONFIRMATIONS: "1"
       GIT_TERMINAL_PROMPT: "0"
+      FASTLANE_DISABLE_COLORS: "1"
+      FASTLANE_CI: "1"
 
     steps:
       - name: Checkout
@@ -49,16 +51,21 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Install CocoaPods & Fastlane
-        run: |
-          sudo gem install cocoapods -v 1.15.2 -N
-          sudo gem install fastlane   -v 2.228.0 -N
+      # Use Bundler since a Gemfile is present
+      - name: Set up Ruby + Bundler cache
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Bundle install (fastlane/cocoapods)
+        run: bundle install --jobs 4 --retry 3
 
       - name: Pod install
         working-directory: ios
         run: |
-          pod repo update
-          pod install
+          bundle exec pod repo update
+          bundle exec pod install
 
       - name: Debug filesystem
         run: |
@@ -67,10 +74,10 @@ jobs:
           echo "---- ios/fastlane ----"
           ls -la ios/fastlane
 
-      # IMPORTANT: run fastlane FROM ios/ because your Fastfile is at ios/fastlane/Fastfile
+      # IMPORTANT: run from ios/ because Fastfile is at ios/fastlane/Fastfile
       - name: Build & upload to TestFlight
         working-directory: ios
-        run: fastlane ios beta
+        run: bundle exec fastlane ios beta
 
       - name: Archive artifacts (ipa, logs)
         if: always()
