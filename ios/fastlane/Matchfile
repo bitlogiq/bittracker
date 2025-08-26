@@ -1,7 +1,10 @@
-git_url("https://github.com/bitlogiq/ios-cert-store.git") # ✅ HTTPS, not SSH
-git_branch("main")  # or "master", depending on the cert repo
+# Match settings (HTTPS + PAT)
+git_url("https://github.com/bitlogiq/ios-cert-store.git")
+git_branch("main")   # change to "master" if that’s your cert repo default
+
 type("appstore")
 readonly(true)
+storage_mode("git")
 
 app_identifier(["za.co.bitlogiq.bittracker"])
 username("roelofhorowitz@hotmail.com")
