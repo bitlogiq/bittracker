@@ -19,11 +19,12 @@ jobs:
       IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      ASC_ISSUER_ID: ${{ secrets_APP_STORE_CONNECT_ISSUER_ID }}
       ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
       IOS_P12_B64: ${{ secrets.IOS_P12_B64 }}
       IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
       IOS_MOBILEPROVISION_B64: ${{ secrets.IOS_MOBILEPROVISION_B64 }}
+      NSUnbufferedIO: "YES" # flushes xcodebuild logs
 
     steps:
       - name: Checkout repository
@@ -106,35 +107,26 @@ jobs:
           security unlock-keychain -p "$PW" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN"
 
-          echo "🔎 Re-checking P12 with OpenSSL (verifies password/file)"
           if ! openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nokeys -clcerts -info >/dev/null 2>&1; then
-            echo "::error ::OpenSSL could not read the P12 with the provided password. Double-check IOS_P12_PASSWORD and base64 content."
+            echo "::error ::OpenSSL could not read the P12 with the provided password. Check IOS_P12_PASSWORD and base64 content."
             exit 1
           fi
-          echo "✅ OpenSSL verified P12"
 
-          echo "🔐 Attempt 1: security import with provided password"
           if security import dist.p12 -k "$KEYCHAIN" -P "$IOS_P12_PASSWORD" -A -T /usr/bin/codesign >/dev/null 2>&1; then
             echo "✅ Imported P12 with provided password"
+          elif security import dist.p12 -k "$KEYCHAIN" -P "" -A -T /usr/bin/codesign >/dev/null 2>&1; then
+            echo "✅ Imported P12 with empty password"
           else
-            echo "🔐 Attempt 2: security import with EMPTY password (some P12s are unprotected)"
-            if security import dist.p12 -k "$KEYCHAIN" -P "" -A -T /usr/bin/codesign >/dev/null 2>&1; then
-              echo "✅ Imported P12 with empty password"
-            else
-              echo "🧰 Attempt 3: fallback to split-import via PEM (cert + key)"
-              openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -clcerts -nokeys -out dist_cert.pem
-              openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nocerts -nodes -out dist_key.pem
-              security import dist_cert.pem -k "$KEYCHAIN" -A -T /usr/bin/codesign
-              security import dist_key.pem  -k "$KEYCHAIN" -A -T /usr/bin/codesign
-              echo "✅ Imported cert and key as PEM"
-            fi
+            echo "🧰 Fallback: split-import via PEM"
+            openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -clcerts -nokeys -out dist_cert.pem
+            openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nocerts -nodes -out dist_key.pem
+            security import dist_cert.pem -k "$KEYCHAIN" -A -T /usr/bin/codesign
+            security import dist_key.pem  -k "$KEYCHAIN" -A -T /usr/bin/codesign
           fi
 
-          # Allow codesign to use keys non-interactively
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KEYCHAIN"
           security find-identity -v -p codesigning "$KEYCHAIN" || true
 
-          # Install provisioning profile, capture UUID + Name
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           PLIST=$(/usr/bin/security cms -D -i app.mobileprovision)
           UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PLIST")
@@ -145,19 +137,10 @@ jobs:
           echo "PROFILE_NAME=$NAME_CLEAN" >> $GITHUB_ENV
           echo "✅ Installed profile: $NAME_CLEAN ($UUID)"
 
-      - name: Sanity • Profile vs secrets
+      - name: Print effective signing settings (pre-build)
         shell: bash
         run: |
-          set -e
-          PLIST=$(/usr/bin/security cms -D -i app.mobileprovision)
-          TEAM_FROM_PROFILE=$(echo "$PLIST" | /usr/libexec/PlistBuddy -c 'Print :ApplicationIdentifierPrefix:0' /dev/stdin)
-          APPID_FROM_PROFILE=$(echo "$PLIST" | /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin)
-          BUNDLE_FROM_PROFILE=${APPID_FROM_PROFILE#*.}
-          echo "Profile Team:      $TEAM_FROM_PROFILE"
-          echo "Profile AppID:     $APPID_FROM_PROFILE"
-          echo "Profile BundleID:  $BUNDLE_FROM_PROFILE"
-          echo "Secrets Team:      ${APPLE_TEAM_ID}"
-          echo "Secrets BundleID:  ${IOS_BUNDLE_ID}"
+          xcodebuild -showBuildSettings -workspace ios/Runner.xcworkspace -scheme Runner | egrep "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN|DEVELOPMENT_TEAM|PROVISIONING_PROFILE" || true
 
       - name: Create exportOptions.plist
         shell: bash
@@ -186,6 +169,7 @@ jobs:
             xcodeproj:"ios/Runner.xcodeproj" \
             build_number:"${GITHUB_RUN_NUMBER}"
 
+      # ⚠️ No pretty formatter -> show raw xcodebuild errors inline
       - name: Build IPA (Manual signing + force Distribution identity)
         shell: bash
         run: |
@@ -199,32 +183,24 @@ jobs:
             include_bitcode:false \
             output_directory:"ios/build" \
             output_name:"BitTracker.ipa" \
-            xcargs:"PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID} CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=Apple\ Distribution PROVISIONING_PROFILE_SPECIFIER=${PROFILE_UUID} PROVISIONING_PROFILE=${PROFILE_UUID} OTHER_CODE_SIGN_FLAGS=--keychain\ build.keychain" \
+            xcodebuild_formatter:"" \
+            xcargs:"ONLY_ACTIVE_ARCH=NO PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID} CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=Apple\ Distribution PROVISIONING_PROFILE_SPECIFIER=${PROFILE_UUID} PROVISIONING_PROFILE=${PROFILE_UUID} OTHER_CODE_SIGN_FLAGS=--keychain\ build.keychain" \
             export_options:"exportOptions.plist"
 
           ls -la ios/build || true
 
-      - name: Upload to TestFlight
-        shell: bash
-        run: |
-          fastlane run upload_to_testflight \
-            api_key_path:"AuthKey.json" \
-            skip_waiting_for_build_processing:true \
-            distribute_external:false
-          echo "✅ Upload to TestFlight initiated"
-
-      - name: Debug • Tail xcodebuild log
+      - name: Debug • Tail xcodebuild/gym log
         if: failure()
         shell: bash
         run: |
-          LOG="/Users/runner/Library/Logs/gym/Runner-Runner.log"
+          LOG="$HOME/Library/Logs/gym/Runner-Runner.log"
+          echo "---- show last 300 lines of gym log ----"
           if [ -f "$LOG" ]; then
-            echo "---- tail of $LOG ----"
-            tail -n 200 "$LOG"
-            echo "----------------------"
+            tail -n 300 "$LOG" || true
           else
             echo "No gym log found at $LOG"
           fi
+          echo "----------------------------------------"
 
       - name: Upload IPA & logs
         if: always()
@@ -233,5 +209,5 @@ jobs:
           name: ios-artifacts
           path: |
             ios/build/**/*.ipa
-            /Users/runner/Library/Logs/gym/**
+            $HOME/Library/Logs/gym/**
           if-no-files-found: warn
