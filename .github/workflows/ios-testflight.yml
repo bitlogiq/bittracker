@@ -70,8 +70,8 @@ jobs:
           pod repo update
           pod install
 
-      # --- Decode secrets to files (robust for macOS/GNU) ---
-      - name: Decode signing & ASC key (robust)
+      # --- Decode secrets to files ---
+      - name: Decode signing & ASC key
         shell: bash
         run: |
           set -e
@@ -88,7 +88,6 @@ jobs:
         shell: bash
         run: shasum -a 256 dist.p12
 
-      # --- Prove the p12 password BEFORE touching the keychain ---
       - name: Verify p12 password (sanity check)
         shell: bash
         run: |
@@ -96,7 +95,6 @@ jobs:
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nokeys -clcerts -info >/dev/null
           echo "✅ p12 password OK"
 
-      # --- Create temp keychain & import cert/key (workaround for PKCS#12 MAC issues) ---
       - name: Install signing via PEM
         shell: bash
         run: |
@@ -108,18 +106,13 @@ jobs:
           security unlock-keychain -p "$PW" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN"
 
-          # Extract cert + key from p12
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -clcerts -nokeys -out dist_cert.pem
           openssl pkcs12 -in dist.p12 -passin pass:"$IOS_P12_PASSWORD" -nocerts -nodes -out dist_key.pem
 
-          # Import them
           security import dist_cert.pem -k "$KEYCHAIN" -A -T /usr/bin/codesign
           security import dist_key.pem  -k "$KEYCHAIN" -A -T /usr/bin/codesign
-
-          # Allow codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KEYCHAIN"
 
-          # Install provisioning profile
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$(/usr/bin/security cms -D -i app.mobileprovision)")
           NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$(/usr/bin/security cms -D -i app.mobileprovision)")
@@ -130,8 +123,7 @@ jobs:
 
       - name: Debug • Identities present
         shell: bash
-        run: |
-          security find-identity -v -p codesigning build.keychain || true
+        run: security find-identity -v -p codesigning build.keychain || true
 
       - name: Debug • Profile vs secrets
         shell: bash
@@ -146,18 +138,11 @@ jobs:
           echo "Profile BundleID:  $BUNDLE_FROM_PROFILE"
           echo "Secrets Team:      ${APPLE_TEAM_ID}"
           echo "Secrets BundleID:  ${IOS_BUNDLE_ID}"
-          if [ "$TEAM_FROM_PROFILE" != "${APPLE_TEAM_ID}" ]; then
-            echo "::error ::Team ID mismatch (profile=${TEAM_FROM_PROFILE}, secret=${APPLE_TEAM_ID})"
-          fi
-          if [ "$BUNDLE_FROM_PROFILE" != "${IOS_BUNDLE_ID}" ]; then
-            echo "::error ::Bundle ID mismatch (profile=${BUNDLE_FROM_PROFILE}, secret=${IOS_BUNDLE_ID})"
-          fi
 
-      # --- Write a VALID XML exportOptions.plist and lint it ---
       - name: Create exportOptions.plist (XML)
         shell: bash
         run: |
-          cat > exportOptions.plist <<'PLIST'
+          cat > exportOptions.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -181,7 +166,7 @@ jobs:
             xcodeproj:"ios/Runner.xcodeproj" \
             build_number:"${GITHUB_RUN_NUMBER}"
 
-      # --- Build IPA (manual signing hints) ---
+      # --- FIXED Build IPA ---
       - name: Build IPA
         shell: bash
         run: |
@@ -200,7 +185,7 @@ jobs:
             output_directory:"ios/build" \
             output_name:"BitTracker.ipa" \
             codesigning_identity:"$IDENTITY" \
-            xcargs:"PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=${PROFILE_NAME}" \
+            xcargs:"PRODUCT_BUNDLE_IDENTIFIER=${IOS_BUNDLE_ID} DEVELOPMENT_TEAM=${APPLE_TEAM_ID}" \
             export_options:"exportOptions.plist"
 
           ls -la ios/build || true
