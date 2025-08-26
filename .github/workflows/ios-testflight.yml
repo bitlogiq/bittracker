@@ -65,10 +65,11 @@ jobs:
           set -euo pipefail
           bundle exec pod install --verbose
 
-      - name: Build & upload with fastlane
-        run: |
-          set -euo pipefail
-          bundle exec fastlane ios ci
+              - name: Build & upload with fastlane
+  working-directory: ios
+  run: |
+    set -euo pipefail
+    bundle exec fastlane ios ci
 
       - name: Archive artifacts (ipa, logs)
         if: always()
