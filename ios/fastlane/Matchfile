@@ -1,6 +1,13 @@
-# fastlane/Matchfile
-git_url ENV['MATCH_GIT_URL']
+# Use a private git repo to store certs/profiles
+git_url(ENV['MATCH_GIT_URL'])
 storage_mode("git")
 type("appstore")
-app_identifier([ENV['APP_IDENTIFIER']])
-git_basic_authorization ENV['MATCH_GIT_TOKEN'] if ENV['MATCH_GIT_TOKEN']
+branch("main")
+
+# Auth for the private repo (Fine-grained PAT)
+git_basic_authorization(ENV['MATCH_GIT_TOKEN'])
+
+# General options
+shallow_clone(true)
+readonly(false)
+force_for_new_devices(false)  # set true only if you rotate dev certs
