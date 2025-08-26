@@ -1,12 +1,3 @@
-# ios/fastlane/Matchfile
-
 git_url(ENV["MATCH_GIT_URL"])
-git_basic_authorization(ENV["MATCH_GIT_BASIC_AUTHORIZATION"]) # "Basic base64(username:token)"
 type("appstore")
-storage_mode("git")
-
-app_identifier(["za.co.bitlogiq.bittracker"])
-team_id(ENV["TEAM_ID"])
-
-# keep default branch unless you changed it
-git_branch("master")
+readonly(true)
