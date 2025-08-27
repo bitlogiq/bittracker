@@ -1,6 +1,37 @@
 default_platform(:ios)
 
 platform :ios do
+  desc "One-off: rotate/repair signing (new distribution cert + App Store profile) and push to cert repo"
+  lane :repair_signing do
+    UI.message(">>> app_store_connect_api_key")
+    app_store_connect_api_key(
+      key_id:        ENV["APP_STORE_CONNECT_KEY_ID"],
+      issuer_id:     ENV["APP_STORE_CONNECT_ISSUER_ID"],
+      key_content:   ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
+      is_key_content_base64: false,
+      in_house: false
+    )
+
+    UI.message(">>> match (repair_signing)")
+    basicauth_b64 = (ENV["MATCH_GIT_BASIC_AUTH_B64"] || "").sub(/^Basic\s+/i, "")
+    UI.user_error!("MATCH_GIT_BASIC_AUTH_B64 is empty") if basicauth_b64.empty?
+
+    match(
+      type: "appstore",
+      readonly: false,                       # allow writing to cert repo
+      force: true,                           # recreate provisioning profile
+      force_for_new_certificates: true,      # create a new Distribution cert
+      storage_mode: "git",
+      git_url: ENV["MATCH_GIT_URL"],
+      git_branch: "main",
+      git_basic_authorization: "Basic #{basicauth_b64}",
+      app_identifier: [ENV["APP_IDENTIFIER"]],
+      username: ENV["APPLE_ID"],
+      team_id: ENV["TEAM_ID"],
+      keychain_name: "login.keychain"
+    )
+  end
+
   desc "Build and upload to TestFlight"
   lane :beta do
     UI.message(">>> app_store_connect_api_key")
@@ -50,9 +81,7 @@ platform :ios do
     )
 
     UI.message(">>> increment_build_number")
-    increment_build_number(
-      xcodeproj: "Runner.xcodeproj"
-    )
+    increment_build_number(xcodeproj: "Runner.xcodeproj")
 
     UI.message(">>> build_app (no fragile xcargs)")
     build_app(
@@ -63,10 +92,9 @@ platform :ios do
         signingStyle: "manual",
         teamID: ENV["TEAM_ID"],
         provisioningProfiles: {
-          bundle_id => profile_name
+          "#{bundle_id}" => profile_name
         }
       }
-      # No xcargs here; we rely on project settings updated above
     )
 
     UI.message(">>> upload_to_testflight")
