@@ -2,56 +2,81 @@ name: iOS TestFlight
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   ios-testflight:
-    runs-on: macos-latest
+    runs-on: macos-14
+
+    env:
+      APP_IDENTIFIER: za.co.bitlogiq.bittracker
+      APPLE_ID: roelofhorowitz@hotmail.com
+      TEAM_ID: R4R4AW7JUQ
+
+      # App Store Connect API (from repo secrets)
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+
+      # fastlane match (certs repo + password + token)
+      MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
+
+      CI: "true"
+      FASTLANE_SKIP_CONFIRMATIONS: "1"
+      FASTLANE_DISABLE_COLORS: "1"
+      FASTLANE_CI: "1"
+      GIT_TERMINAL_PROMPT: "0"
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Set up Java (needed for Flutter builds on iOS)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.35.1
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
+          bundler-cache: true
 
-      - name: Install Bundler
-        run: gem install bundler
+      - name: Install gems
+        run: |
+          cd ios
+          bundle install --jobs 4 --retry 3
 
       - name: Install CocoaPods
         run: |
-          gem install cocoapods -v 1.15.2
-          pod --version
+          cd ios
+          bundle exec pod install --repo-update
 
-      - name: Install dependencies
-        run: bundle install
-        working-directory: ios
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.35.1'
-
-      - name: Flutter pub get
-        run: flutter pub get
-
-      - name: Build iOS (Fastlane)
+      - name: Build & Upload to TestFlight
         working-directory: ios
         run: bundle exec fastlane ios beta
-        env:
-          APP_IDENTIFIER: za.co.bitlogiq.bittracker
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          TEAM_ID: ${{ secrets.TEAM_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
-          MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
-          CI: true
-          FASTLANE_SKIP_CONFIRMATIONS: 1
-          FASTLANE_DISABLE_COLORS: 1
-          FASTLANE_CI: 1
-          GIT_TERMINAL_PROMPT: 0
+
+      - name: Archive artifacts (ipa & logs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-artifacts
+          path: |
+            ios/build/**/*.ipa
+            ~/Library/Logs/gym/**/*.log
+            /Users/runner/Library/Logs/gym/**/*.log
+            /Users/runner/Library/Developer/Xcode/Archives/**/*.xcarchive
