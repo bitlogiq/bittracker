@@ -6,7 +6,6 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-
     steps:
       - name: Checkout app
         uses: actions/checkout@v4
@@ -19,7 +18,7 @@ jobs:
       - name: Install Ruby gems
         working-directory: ios
         run: |
-          bundle config set frozen false
+          bundle config set path vendor/bundle
           bundle install --jobs 4 --retry 3
 
       - name: Set up Flutter
@@ -31,11 +30,8 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # 🔹 Build IPA instead of plain iOS build
-      - name: Build iOS IPA
-        run: |
-          flutter build ipa --release \
-            --export-options-plist=ios/ExportOptions.plist
+      - name: Build iOS IPA (no codesign)
+        run: flutter build ipa --release --no-codesign
 
       - name: Write ASC API key JSON
         working-directory: ios
@@ -78,5 +74,5 @@ jobs:
           JAVA_HOME_17_ARM64: /Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home
           FLUTTER_ROOT: /Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64
           PUB_CACHE: /Users/runner/.pub-cache
-          PATH: /Users/runner/.pub-cache/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin/cache/dart-sdk/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin:/Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home/bin:/Users/runner/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/runner/.cargo/bin:/usr/local/opt/curl/bin:/usr/local/bin:/usr/local/sbin:/Users/runner/bin:/Users/runner/.yarn/bin:/Users/runner/Library/Android/sdk/tools:/Users/runner/Library/Android/sdk/platform-tools:/Library/Frameworks/Python.framework/Versions/Current/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/usr/bin:/bin:/usr/sbin:/sbin:/Users/runner/.dotnet/tools
+          PATH: /Users/runner/.pub-cache/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin/cache/dart-sdk/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin:$PATH
           BUNDLE_GEMFILE: /Users/runner/work/bittracker/bittracker/ios/Gemfile
