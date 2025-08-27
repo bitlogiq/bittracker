@@ -5,11 +5,11 @@ default_platform(:ios)
 platform :ios do
   lane :beta do
     UI.message(">>> app_store_connect_api_key")
-    app_store_connect_api_key(
-      key_id:        ENV["APP_STORE_CONNECT_KEY_ID"],
-      issuer_id:     ENV["APP_STORE_CONNECT_ISSUER_ID"],
-      key_content:   ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
-      in_house:      false
+    api = app_store_connect_api_key(
+      key_id:      ENV["APP_STORE_CONNECT_KEY_ID"],
+      issuer_id:   ENV["APP_STORE_CONNECT_ISSUER_ID"],
+      key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
+      in_house:    false
     )
 
     UI.message(">>> match (HTTPS + PAT)")
@@ -23,17 +23,11 @@ platform :ios do
       git_url: ENV["MATCH_GIT_URL"],
       git_branch: "main",
       git_basic_authorization: "Basic #{basicauth_b64}",
-      api_key: app_store_connect_api_key(
-        key_id:      ENV["APP_STORE_CONNECT_KEY_ID"],
-        issuer_id:   ENV["APP_STORE_CONNECT_ISSUER_ID"],
-        key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
-        in_house:    false
-      ),
+      api_key: api,
       app_identifier: [ENV["APP_IDENTIFIER"]],
       team_id: ENV["TEAM_ID"],
       username: ENV["APPLE_ID"],
       keychain_name: "login.keychain"
-      # MATCH_PASSWORD comes from env; no need to pass explicitly
     )
 
     UI.message(">>> update_project_team")
@@ -52,13 +46,11 @@ platform :ios do
     )
 
     UI.message(">>> increment_build_number")
-    increment_build_number(
-      xcodeproj: "Runner.xcodeproj"
-    )
+    increment_build_number(xcodeproj: "Runner.xcodeproj")
 
-    UI.message(">>> build_app with explicit signing via export_options")
-    bundle_id   = ENV["APP_IDENTIFIER"]
-    team_id     = ENV["TEAM_ID"]
+    UI.message(">>> build_app with export_options mapping")
+    bundle_id    = ENV["APP_IDENTIFIER"]
+    team_id      = ENV["TEAM_ID"]
     profile_name = "match AppStore #{bundle_id}"
 
     build_app(
@@ -66,7 +58,7 @@ platform :ios do
       workspace: "Runner.xcworkspace",
       export_method: "app-store",
 
-      # Use export_options to bind the provisioning profile (correct place)
+      # Correct place to bind provisioning profile
       export_options: {
         signingStyle: "manual",
         teamID: team_id,
@@ -75,7 +67,7 @@ platform :ios do
         }
       },
 
-      # Keep signing-related overrides here — no PROVISIONING_PROFILE_SPECIFIER
+      # No PROVISIONING_PROFILE_SPECIFIER here!
       xcargs: %Q[
         DEVELOPMENT_TEAM=#{team_id}
         CODE_SIGN_STYLE=Manual
