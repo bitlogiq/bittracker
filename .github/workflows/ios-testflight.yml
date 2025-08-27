@@ -30,11 +30,8 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # ✅ Build .ipa instead of ios --release
-      - name: Build iOS IPA
-        run: |
-          flutter build ipa --release \
-            --export-options-plist=ios/ExportOptions.plist
+      - name: Build iOS dependencies
+        run: flutter build ios --release --no-codesign
 
       - name: Write ASC API key JSON
         working-directory: ios
@@ -53,6 +50,9 @@ jobs:
                      "in_house"  => false
                    };
                    File.write("AuthKey.json", JSON.generate(data))'
+
+      - name: Build IPA
+        run: flutter build ipa --release --export-options-plist=$GITHUB_WORKSPACE/ios/ExportOptions.plist
 
       - name: Fastlane beta
         working-directory: ios
