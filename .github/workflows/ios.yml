@@ -1,0 +1,27 @@
+jobs:
+  match_setup:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install fastlane
+        run: gem install fastlane
+
+      - name: Run match for development
+        run: bundle exec fastlane match development
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+          APP_STORE_CONNECT_API_KEY_PATH: ./AuthKey.json
+
+      - name: Run match for appstore
+        run: bundle exec fastlane match appstore
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+          APP_STORE_CONNECT_API_KEY_PATH: ./AuthKey.json
