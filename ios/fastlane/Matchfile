@@ -1,3 +1,4 @@
+# Match configuration for CI (HTTPS + PAT)
 git_url("https://github.com/bitlogiq/ios-cert-store.git")
 git_branch("main")
 
@@ -5,6 +6,6 @@ type("appstore")
 readonly(true)
 storage_mode("git")
 
-app_identifier(["za.co.bitlogiq.bittracker"])
-username("roelofhorowitz@hotmail.com")
-team_id("R4R4AW7JUQ")
+app_identifier([ENV["APP_IDENTIFIER"]])
+username(ENV["APPLE_ID"])
+team_id(ENV["TEAM_ID"])
