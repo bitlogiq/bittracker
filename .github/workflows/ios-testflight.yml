@@ -23,6 +23,9 @@ jobs:
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_PAT:  ${{ secrets.MATCH_GIT_PAT }}
 
+      # 🔧 Keychain password (stops UI prompts in logs)
+      KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PWD }}
+
       # CI hygiene
       CI: "true"
       FASTLANE_SKIP_CONFIRMATIONS: "1"
