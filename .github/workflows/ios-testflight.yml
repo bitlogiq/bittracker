@@ -18,8 +18,7 @@ jobs:
       - name: Install Ruby gems
         working-directory: ios
         run: |
-          bundle config set path vendor/bundle
-          bundle config set without 'development'
+          bundle config set frozen false
           bundle install --jobs 4 --retry 3
 
       - name: Set up Flutter
@@ -31,9 +30,20 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # ✅ Corrected build step: build IPA archive instead of iOS device target
+      # ✅ Build + Archive with generic iOS device
       - name: Build iOS IPA
-        run: flutter build ipa --release --no-codesign
+        run: |
+          flutter build ios --release --no-codesign
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -sdk iphoneos \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            archive -archivePath $PWD/build/ios/Runner.xcarchive
+          xcodebuild -exportArchive \
+            -archivePath $PWD/build/ios/Runner.xcarchive \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath $PWD/build/ios/ipa
 
       - name: Write ASC API key JSON
         working-directory: ios
@@ -66,7 +76,6 @@ jobs:
           MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
-          MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
           CI: true
           FASTLANE_SKIP_CONFIRMATIONS: 1
           FASTLANE_DISABLE_COLORS: 1
@@ -78,3 +87,4 @@ jobs:
           PUB_CACHE: /Users/runner/.pub-cache
           PATH: /Users/runner/.pub-cache/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin/cache/dart-sdk/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin:/Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home/bin:/Users/runner/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/runner/.cargo/bin:/usr/local/opt/curl/bin:/usr/local/bin:/usr/local/sbin:/Users/runner/bin:/Users/runner/.yarn/bin:/Users/runner/Library/Android/sdk/tools:/Users/runner/Library/Android/sdk/platform-tools:/Library/Frameworks/Python.framework/Versions/Current/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/usr/bin:/bin:/usr/sbin:/sbin:/Users/runner/.dotnet/tools
           BUNDLE_GEMFILE: /Users/runner/work/bittracker/bittracker/ios/Gemfile
+          MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
