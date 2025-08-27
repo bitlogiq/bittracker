@@ -1,11 +1,9 @@
 # ios/Gemfile
+
 source "https://rubygems.org"
 
-# Pin fastlane and cocoapods to sane ranges used by CI image
-gem "fastlane", ">= 2.228.0", "< 3.0.0"
-gem "cocoapods", ">= 1.15.2", "< 2.0.0"
+# Fastlane for iOS builds
+gem "fastlane", "~> 2.228"
 
-# NOTE:
-# - DO NOT add `gem "xcbeautify"` here. xcbeautify is installed via Homebrew.
-# - If you ever want a Ruby-based formatter fallback, you could use:
-#   gem "xcpretty"
+# CocoaPods required by Flutter iOS builds
+gem "cocoapods", "1.15.2"
