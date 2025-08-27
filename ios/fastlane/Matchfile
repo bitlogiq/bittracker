@@ -1,4 +1,3 @@
-# Match settings (HTTPS + PAT)
 git_url("https://github.com/bitlogiq/ios-cert-store.git")
 git_branch("main")
 
