@@ -3,7 +3,7 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload to TestFlight"
   lane :beta do
-    # Load App Store Connect API key
+    # Load App Store Connect API key from secrets
     app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
@@ -12,23 +12,24 @@ platform :ios do
       in_house: false
     )
 
-    # Ensure certs/profiles are installed
+    # Install signing identities + profiles from match
     basicauth_b64 = ENV["MATCH_GIT_BASIC_AUTH_B64"].to_s.strip
     UI.user_error!("MATCH_GIT_BASIC_AUTH_B64 is empty") if basicauth_b64.empty?
 
     match(
       type: "appstore",
       readonly: true,
-      git_basic_authorization: basicauth_b64 # IMPORTANT: raw b64 only
+      git_basic_authorization: basicauth_b64
     )
 
-    # Build ipa
+    # Build the IPA with explicit Team ID
     build_app(
       scheme: "Runner",
-      export_method: "app-store"
+      export_method: "app-store",
+      xcargs: "DEVELOPMENT_TEAM=R4R4AW7JUQ"
     )
 
-    # Upload ipa to TestFlight
+    # Upload to TestFlight
     upload_to_testflight(
       skip_waiting_for_build_processing: false
     )
