@@ -1,3 +1,3 @@
-app_identifier ENV["APP_IDENTIFIER"] # za.co.bitlogiq.bittracker
-apple_id ENV["APPLE_ID"]             # roelofhorowitz@hotmail.com
-team_id  ENV["TEAM_ID"]              # R4R4AW7JUQ
+# Using ASC API key in Fastfile; keep Appfile minimal
+apple_id(ENV["APPLE_ID"])
+itc_team_id(ENV["TEAM_ID"])
