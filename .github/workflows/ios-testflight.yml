@@ -1,17 +1,16 @@
 name: iOS TestFlight
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
 
 jobs:
-  ios-testflight:
+  build:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Ruby
@@ -19,27 +18,26 @@ jobs:
         with:
           ruby-version: '3.2'
 
-      - name: Install Bundler & Fastlane
-        run: |
-          gem install bundler:2.5.9
-          bundle install || gem install fastlane
+      - name: Install Bundler
+        run: gem install bundler:2.5.11
 
-      - name: Set up Keychain
-        run: |
-          security create-keychain -p "$MATCH_KEYCHAIN_PASSWORD" ios-build.keychain
-          security list-keychains -s ios-build.keychain
-          security default-keychain -s ios-build.keychain
-          security unlock-keychain -p "$MATCH_KEYCHAIN_PASSWORD" ios-build.keychain
-          security set-keychain-settings ios-build.keychain
-        env:
-          MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
+      - name: Install fastlane
+        run: gem install fastlane
 
+      # 🔑 Decode App Store Connect API key
+      - name: Write ASC API key JSON
+        shell: bash
+        run: |
+          echo "{\"key_id\":\"${{ secrets.APP_STORE_CONNECT_KEY_ID }}\",\"issuer_id\":\"${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}\",\"key\":\"${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}\",\"duration\":1200,\"in_house\":false}" > AuthKey.json
+
+      # 🔧 Environment for Fastlane
+      - name: Set environment variables
+        run: |
+          echo "APP_STORE_CONNECT_KEY_ID=${{ secrets.APP_STORE_CONNECT_KEY_ID }}" >> $GITHUB_ENV
+          echo "APP_STORE_CONNECT_ISSUER_ID=${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" >> $GITHUB_ENV
+          echo "APP_STORE_CONNECT_PRIVATE_KEY=${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" >> $GITHUB_ENV
+          echo "APP_STORE_CONNECT_TEAM_ID=R4R4AW7JUQ" >> $GITHUB_ENV
+
+      # 🏗 Build + upload with Fastlane
       - name: Build and upload to TestFlight
-        env:
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          APP_STORE_CONNECT_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_KEY_CONTENT }}
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
-        run: |
-          bundle exec fastlane ios beta
+        run: bundle exec fastlane ios beta
