@@ -1,37 +1,42 @@
 default_platform(:ios)
 
 platform :ios do
-  desc "Push a new beta build to TestFlight"
+  desc "Build and upload to TestFlight"
   lane :beta do
-    # 🔑 Initialize App Store Connect API key from GitHub secrets
+    # 🔑 Use App Store Connect API key for authentication
     api_key = app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
       key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
-      in_house: false
+      is_key_content_base64: true
     )
 
-    # 🔐 Fetch certificates & provisioning profiles
+    # 🔐 Fetch certs & profiles via Match
     match(
       type: "appstore",
       readonly: false,
+      api_key: api_key,
       git_url: ENV["MATCH_GIT_URL"],
       git_branch: "main",
-      api_key: api_key,
       git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTH_B64"],
       keychain_name: "login.keychain-db",
       keychain_password: ENV["MATCH_PASSWORD"]
     )
 
-    # 🏗 Build the app
-    build_app(
+    # 📦 Build IPA with explicit ExportOptions.plist
+    build_ios_app(
       scheme: "Runner",
       export_method: "app-store",
+      export_options: "ios/ExportOptions.plist",
       output_directory: "./build",
-      output_name: "Runner.ipa"
+      output_name: "BitTracker.ipa"
     )
 
     # 🚀 Upload to TestFlight
-    upload_to_testflight(api_key: api_key)
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: false,
+      ipa: "./build/BitTracker.ipa"
+    )
   end
 end
