@@ -1,5 +1,6 @@
 git_url("https://github.com/bitlogiq/ios-cert-store.git")
 git_branch("main")
+
 type("appstore")
 storage_mode("git")
 readonly(true)
@@ -7,6 +8,3 @@ readonly(true)
 app_identifier(["za.co.bitlogiq.bittracker"])
 username("roelofhorowitz@hotmail.com")
 team_id("R4R4AW7JUQ")
-
-# CI-auth via PAT (provided by workflow)
-# fastlane reads ENV["MATCH_GIT_BASIC_AUTH_B64"] from the workflow step
