@@ -1,6 +1,6 @@
 # Match settings (HTTPS + PAT)
 git_url("https://github.com/bitlogiq/ios-cert-store.git")
-git_branch("main")   # change to "master" if that’s your cert repo default
+git_branch("main")
 
 type("appstore")
 readonly(true)
