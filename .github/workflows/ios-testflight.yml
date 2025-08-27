@@ -1,17 +1,14 @@
 name: iOS TestFlight
 
 on:
-  workflow_dispatch: # run manually
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
-  build-and-deploy:
+  ios-testflight:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Ruby
@@ -19,31 +16,42 @@ jobs:
         with:
           ruby-version: '3.2'
 
-      - name: Install fastlane
-        run: gem install fastlane
+      - name: Install Bundler
+        run: gem install bundler
 
-      # 🔑 Sync signing for Development + App Store
-      - name: Match Development
-        run: bundle exec fastlane match development --readonly false --force_for_new_devices
-        env:
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+      - name: Install CocoaPods
+        run: |
+          gem install cocoapods -v 1.15.2
+          pod --version
 
-      - name: Match App Store
-        run: bundle exec fastlane match appstore --readonly false
-        env:
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+      - name: Install dependencies
+        run: bundle install
+        working-directory: ios
 
-      # 🔨 Build IPA and upload to TestFlight
-      - name: Build and Upload to TestFlight
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.1'
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build iOS (Fastlane)
+        working-directory: ios
         run: bundle exec fastlane ios beta
         env:
           APP_IDENTIFIER: za.co.bitlogiq.bittracker
           APPLE_ID: ${{ secrets.APPLE_ID }}
           TEAM_ID: ${{ secrets.TEAM_ID }}
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
+          MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
+          CI: true
+          FASTLANE_SKIP_CONFIRMATIONS: 1
+          FASTLANE_DISABLE_COLORS: 1
+          FASTLANE_CI: 1
+          GIT_TERMINAL_PROMPT: 0
