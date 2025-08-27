@@ -2,109 +2,44 @@ name: iOS TestFlight
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   ios-testflight:
-    runs-on: macos-14
-
-    env:
-      # App metadata
-      APP_IDENTIFIER: za.co.bitlogiq.bittracker
-      APPLE_ID: roelofhorowitz@hotmail.com
-      TEAM_ID: R4R4AW7JUQ
-
-      # App Store Connect API (secrets)
-      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-
-      # match repo (HTTPS + PAT)
-      MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
-
-      # CI hygiene
-      CI: "true"
-      FASTLANE_SKIP_CONFIRMATIONS: "1"
-      FASTLANE_DISABLE_COLORS: "1"
-      FASTLANE_CI: "1"
-      GIT_TERMINAL_PROMPT: "0"
+    runs-on: macos-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Java (for Flutter on iOS)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Set up Flutter (pinned)
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: 3.35.1
-          cache: true
-
-      - name: Cache Flutter & Pods
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.pub-cache
-            ios/Pods
-            ios/Podfile.lock
-          key: ${{ runner.os }}-flutter-${{ hashFiles('**/pubspec.lock') }}-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-flutter-
-
-      - name: Flutter pub get
-        run: flutter pub get
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.2"
+          ruby-version: '3.2'
 
-      - name: Bundle install (ios/Gemfile)
-        working-directory: ios
-        env:
-          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
-        run: bundle install --jobs 4 --retry 3
-
-      - name: Pod install (via Bundler)
-        working-directory: ios
-        env:
-          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
+      - name: Install Bundler & Fastlane
         run: |
-          echo "FLUTTER_ROOT=$FLUTTER_ROOT"
-          bundle exec pod repo update
-          bundle exec pod install
+          gem install bundler:2.5.9
+          bundle install || gem install fastlane
 
-      - name: Build Basic auth (base64 only)
-        id: basicauth
-        shell: bash
+      - name: Set up Keychain
         run: |
-          if [ -z "${MATCH_GIT_PAT:-}" ]; then
-            echo "ERROR: MATCH_GIT_PAT is empty" >&2
-            exit 1
-          fi
-          b64=$(printf "%s:%s" "x-access-token" "$MATCH_GIT_PAT" | base64)
-          echo "b64=$b64" >> "$GITHUB_OUTPUT"
-
-      - name: Build & upload to TestFlight (Fastlane)
-        working-directory: ios
+          security create-keychain -p "$MATCH_KEYCHAIN_PASSWORD" ios-build.keychain
+          security list-keychains -s ios-build.keychain
+          security default-keychain -s ios-build.keychain
+          security unlock-keychain -p "$MATCH_KEYCHAIN_PASSWORD" ios-build.keychain
+          security set-keychain-settings ios-build.keychain
         env:
-          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
-          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.b64 }}
-        run: bundle exec fastlane ios beta
+          MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
 
-      - name: Archive artifacts (ipa & logs)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-build-artifacts
-          path: |
-            ios/build/**/*.ipa
-            ~/Library/Logs/gym/**/*.log
-            /Users/runner/Library/Logs/gym/**/*.log
-            /Users/runner/Library/Developer/Xcode/Archives/**/*.xcarchive
+      - name: Build and upload to TestFlight
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_KEY_CONTENT }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
+        run: |
+          bundle exec fastlane ios beta
