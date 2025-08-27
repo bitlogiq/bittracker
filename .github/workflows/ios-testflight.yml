@@ -1,43 +1,38 @@
-name: iOS TestFlight
+default_platform(:ios)
 
-on:
-  push:
-    branches:
-      - main
+platform :ios do
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    # ✅ Authenticate with App Store Connect using API key
+    app_store_connect_api_key(
+      key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
+      key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
+      is_key_content_base64: false
+    )
 
-jobs:
-  build:
-    runs-on: macos-latest
+    # ✅ Pull signing certs and profiles from match repo
+    match(
+      type: "appstore",
+      readonly: false,
+      app_identifier: ["za.co.bitlogiq.bittracker"],
+      git_url: ENV["MATCH_GIT_URL"],
+      username: ENV["APPLE_ID"]
+    )
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    # ✅ Build with explicit provisioning + allow updates
+    build_app(
+      scheme: "Runner",
+      export_method: "app-store",
+      export_options: {
+        provisioningProfiles: {
+          "za.co.bitlogiq.bittracker" => "match AppStore za.co.bitlogiq.bittracker"
+        }
+      },
+      xcargs: "DEVELOPMENT_TEAM=#{ENV["TEAM_ID"]} -allowProvisioningUpdates"
+    )
 
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-
-      - name: Install Bundler
-        run: gem install bundler:2.5.11
-
-      - name: Install fastlane
-        run: gem install fastlane
-
-      # 🔑 Decode App Store Connect API key
-      - name: Write ASC API key JSON
-        shell: bash
-        run: |
-          echo "{\"key_id\":\"${{ secrets.APP_STORE_CONNECT_KEY_ID }}\",\"issuer_id\":\"${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}\",\"key\":\"${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}\",\"duration\":1200,\"in_house\":false}" > AuthKey.json
-
-      # 🔧 Environment for Fastlane
-      - name: Set environment variables
-        run: |
-          echo "APP_STORE_CONNECT_KEY_ID=${{ secrets.APP_STORE_CONNECT_KEY_ID }}" >> $GITHUB_ENV
-          echo "APP_STORE_CONNECT_ISSUER_ID=${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" >> $GITHUB_ENV
-          echo "APP_STORE_CONNECT_PRIVATE_KEY=${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" >> $GITHUB_ENV
-          echo "APP_STORE_CONNECT_TEAM_ID=R4R4AW7JUQ" >> $GITHUB_ENV
-
-      # 🏗 Build + upload with Fastlane
-      - name: Build and upload to TestFlight
-        run: bundle exec fastlane ios beta
+    # ✅ Upload to TestFlight
+    upload_to_testflight
+  end
+end
