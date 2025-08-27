@@ -65,12 +65,11 @@ jobs:
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
         run: |
-          # Sanity: FLUTTER_ROOT must be set before Podfile is parsed
           echo "FLUTTER_ROOT=$FLUTTER_ROOT"
           bundle exec pod repo update
           bundle exec pod install
 
-      - name: Build Basic auth (base64 only, no "Basic " prefix)
+      - name: Build Basic auth (base64 only)
         id: basicauth
         shell: bash
         run: |
@@ -78,7 +77,6 @@ jobs:
             echo "ERROR: MATCH_GIT_PAT is empty" >&2
             exit 1
           fi
-          # Base64 encode username:token only
           b64=$(printf "%s:%s" "x-access-token" "$MATCH_GIT_PAT" | base64)
           echo "b64=$b64" >> "$GITHUB_OUTPUT"
 
