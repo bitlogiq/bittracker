@@ -18,8 +18,12 @@ jobs:
       - name: Install Ruby gems
         working-directory: ios
         run: |
-          bundle config set frozen true
+          bundle config set frozen false
           bundle install --jobs 4 --retry 3
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: bundle exec pod install --repo-update
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -27,7 +31,7 @@ jobs:
           channel: stable
           flutter-version: 3.35.1
 
-      - name: Install dependencies
+      - name: Install Flutter dependencies
         run: flutter pub get
 
       - name: Build iOS dependencies
