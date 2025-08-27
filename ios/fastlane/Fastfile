@@ -5,7 +5,7 @@ build_app(
   workspace: "Runner.xcworkspace",
   export_method: "app-store",
 
-  # Let gym handle provisioning via export_options (already correct)
+  # Keep export_options — this is the correct place to bind the profile
   export_options: {
     signingStyle: "manual",
     teamID: team_id,
@@ -14,7 +14,7 @@ build_app(
     }
   },
 
-  # Keep these, but remove PROVISIONING_PROFILE_SPECIFIER from xcargs
+  # Clean xcargs: NO PROVISIONING_PROFILE_SPECIFIER here
   xcargs: %Q[
     DEVELOPMENT_TEAM=#{team_id}
     CODE_SIGN_STYLE=Manual
