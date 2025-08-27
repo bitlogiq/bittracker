@@ -2,9 +2,6 @@ name: iOS TestFlight
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
   ios-testflight:
@@ -15,12 +12,10 @@ jobs:
       APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
 
-      # App Store Connect API (from repo secrets)
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
 
-      # fastlane match (certs repo + password + token)
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
@@ -32,10 +27,10 @@ jobs:
       GIT_TERMINAL_PROMPT: "0"
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java (needed for Flutter builds on iOS)
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -53,24 +48,25 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.2'
-          bundler-cache: true
+          ruby-version: "3.2"
 
-      - name: Install gems
+      - name: Bundle install
+        working-directory: ios
         run: |
-          cd ios
+          bundle config set frozen false
           bundle install --jobs 4 --retry 3
 
-      - name: Install CocoaPods
+      - name: Pod install
+        working-directory: ios
         run: |
-          cd ios
-          bundle exec pod install --repo-update
+          bundle exec pod repo update
+          bundle exec pod install
 
-      - name: Build & Upload to TestFlight
+      - name: Build & upload to TestFlight
         working-directory: ios
         run: bundle exec fastlane ios beta
 
-      - name: Archive artifacts (ipa & logs)
+      - name: Archive artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
