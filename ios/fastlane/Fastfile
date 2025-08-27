@@ -13,20 +13,22 @@ platform :ios do
       in_house: false
     )
 
-    UI.message(">>> match (https + PAT)")
+    UI.message(">>> match (HTTPS + PAT)")
     basicauth_b64 = (ENV["MATCH_GIT_BASIC_AUTH_B64"] || "").sub(/^Basic\s+/i, "")
     UI.user_error!("MATCH_GIT_BASIC_AUTH_B64 is empty") if basicauth_b64.empty?
     match(
       type: "appstore",
       readonly: true,
       storage_mode: "git",
-      git_url: ENV["MATCH_GIT_URL"],
+      git_url: ENV["MATCH_GIT_URL"],     # e.g. https://github.com/bitlogiq/ios-cert-store.git
       git_branch: "main",
       git_basic_authorization: basicauth_b64,
       api_key: api_key,
-      app_identifier: [ENV["APP_IDENTIFIER"]],
-      team_id: ENV["TEAM_ID"],
-      username: ENV["APPLE_ID"]
+      app_identifier: [ENV["APP_IDENTIFIER"]], # za.co.bitlogiq.bittracker
+      team_id: ENV["TEAM_ID"],                 # R4R4AW7JUQ
+      username: ENV["APPLE_ID"]                # roelofhorowitz@hotmail.com
+      # (optional) keychain_name: "login.keychain",
+      # (optional) keychain_password: ENV["KEYCHAIN_PASSWORD"]
     )
 
     UI.message(">>> update_project_team")
@@ -54,7 +56,7 @@ platform :ios do
       workspace: "Runner.xcworkspace",
       export_method: "app-store",
 
-      # Force all signing knobs:
+      # belt + suspenders: force all signing flags at compile time
       xcargs: [
         "DEVELOPMENT_TEAM=#{ENV['TEAM_ID']}",
         "CODE_SIGN_STYLE=Manual",
