@@ -7,11 +7,9 @@ jobs:
   build:
     runs-on: macos-latest
     steps:
-      # Checkout repo
-      - name: Checkout
+      - name: Checkout app
         uses: actions/checkout@v4
 
-      # Set up Ruby (for Fastlane + CocoaPods)
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -20,56 +18,60 @@ jobs:
       - name: Install Ruby gems
         working-directory: ios
         run: |
-          bundle config set path 'vendor/bundle'
+          bundle config set frozen false
           bundle install --jobs 4 --retry 3
 
-      # Set up Flutter
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.35.1
           channel: stable
+          flutter-version: 3.35.1
 
-      - name: Flutter Pub Get
+      - name: Install dependencies
         run: flutter pub get
 
-      # 🔐 Fetch Certificates & Profiles (Fastlane Match)
-      - name: Sync signing certificates & profiles
+      - name: Build iOS dependencies
+        run: flutter build ios --release --no-codesign
+
+      - name: Write ASC API key JSON
         working-directory: ios
-        run: bundle exec fastlane match appstore --readonly false --force_for_new_devices
+        shell: bash
         env:
-          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-          FASTLANE_USER: roelofhorowitz@hotmail.com
-          FASTLANE_TEAM_ID: R4R4AW7JUQ
-          FASTLANE_SESSION: ${{ secrets.FASTLANE_SESSION }}
-          CI: true
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          ruby -e 'require "json";
+                   data = {
+                     "key_id"    => ENV["ASC_KEY_ID"],
+                     "issuer_id" => ENV["ASC_ISSUER_ID"],
+                     "key"       => ENV["ASC_PRIVATE_KEY"],
+                     "duration"  => 1200,
+                     "in_house"  => false
+                   };
+                   File.write("AuthKey.json", JSON.generate(data))'
 
-      # Build iOS IPA
-      - name: Build iOS IPA
-        run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
-        env:
-          FLUTTER_ROOT: /Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64
-          PUB_CACHE: /Users/runner/.pub-cache
-
-      # 🚀 Upload to TestFlight
-      - name: Upload to TestFlight
+      - name: Fastlane beta
         working-directory: ios
         run: bundle exec fastlane ios beta
         env:
           APP_IDENTIFIER: za.co.bitlogiq.bittracker
           APPLE_ID: roelofhorowitz@hotmail.com
           TEAM_ID: R4R4AW7JUQ
-          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+          MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          CI: true
           FASTLANE_SKIP_CONFIRMATIONS: 1
           FASTLANE_DISABLE_COLORS: 1
-          CI: true
+          FASTLANE_CI: 1
+          GIT_TERMINAL_PROMPT: 0
+          JAVA_HOME: /Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home
+          JAVA_HOME_17_ARM64: /Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home
+          FLUTTER_ROOT: /Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64
+          PUB_CACHE: /Users/runner/.pub-cache
+          PATH: /Users/runner/.pub-cache/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin/cache/dart-sdk/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin:/Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home/bin:/Users/runner/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/runner/.cargo/bin:/usr/local/opt/curl/bin:/usr/local/bin:/usr/local/sbin:/Users/runner/bin:/Users/runner/.yarn/bin:/Users/runner/Library/Android/sdk/tools:/Users/runner/Library/Android/sdk/platform-tools:/Library/Frameworks/Python.framework/Versions/Current/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/usr/bin:/bin:/usr/sbin:/sbin:/Users/runner/.dotnet/tools
+          BUNDLE_GEMFILE: /Users/runner/work/bittracker/bittracker/ios/Gemfile
