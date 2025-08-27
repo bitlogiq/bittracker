@@ -33,6 +33,19 @@ platform :ios do
       username: ENV["APPLE_ID"]
     )
 
+    # --- NEW: ensure the Xcode project has your Team set & manual signing in CI ---
+    update_project_team(
+      path: "Runner.xcodeproj",
+      teamid: ENV["TEAM_ID"]
+    )
+
+    automatic_code_signing(
+      path: "Runner.xcodeproj",
+      use_automatic_signing: false,
+      team_id: ENV["TEAM_ID"]
+    )
+    # -------------------------------------------------------------------------------
+
     increment_build_number(xcodeproj: "Runner.xcodeproj")
 
     # Build with explicit signing overrides so Xcode uses your team & profile
@@ -41,11 +54,12 @@ platform :ios do
       workspace: "Runner.xcworkspace",
       export_method: "app-store",
 
-      # ✅ Make Xcode use your Development Team and Manual signing in CI
+      # Keep these overrides for CI robustness
       xcargs: "DEVELOPMENT_TEAM=#{ENV['TEAM_ID']} CODE_SIGN_STYLE=Manual",
 
-      # ✅ Tell export which provisioning profile to use (from match)
       export_options: {
+        signingStyle: "manual",
+        teamID: ENV["TEAM_ID"],
         provisioningProfiles: {
           "za.co.bitlogiq.bittracker" => "match AppStore za.co.bitlogiq.bittracker"
         }
