@@ -6,7 +6,6 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-
     steps:
       - name: Checkout app
         uses: actions/checkout@v4
@@ -33,24 +32,6 @@ jobs:
 
       - name: Build iOS (no codesign)
         run: flutter build ios --release --no-codesign
-
-      - name: Write ASC API key JSON
-        working-directory: ios
-        shell: bash
-        env:
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-        run: |
-          ruby -e 'require "json";
-                   data = {
-                     "key_id"    => ENV["ASC_KEY_ID"],
-                     "issuer_id" => ENV["ASC_ISSUER_ID"],
-                     "key"       => ENV["ASC_PRIVATE_KEY"],
-                     "duration"  => 1200,
-                     "in_house"  => false
-                   };
-                   File.write("AuthKey.json", JSON.generate(data))'
 
       - name: Setup keychain
         run: |
@@ -80,9 +61,3 @@ jobs:
           FASTLANE_SKIP_CONFIRMATIONS: 1
           FASTLANE_DISABLE_COLORS: 1
           FASTLANE_CI: 1
-          GIT_TERMINAL_PROMPT: 0
-          JAVA_HOME: /Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home
-          FLUTTER_ROOT: /Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64
-          PUB_CACHE: /Users/runner/.pub-cache
-          PATH: /Users/runner/.pub-cache/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin:/usr/local/bin:/usr/bin:/bin
-          BUNDLE_GEMFILE: /Users/runner/work/bittracker/bittracker/ios/Gemfile
