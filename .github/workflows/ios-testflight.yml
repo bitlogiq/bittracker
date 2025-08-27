@@ -18,26 +18,23 @@ jobs:
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
 
-      # match via HTTPS + PAT
+      # match repo (HTTPS + PAT)
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }} # same password used when you ran `match init`
       MATCH_GIT_PAT:  ${{ secrets.MATCH_GIT_PAT }}
-
-      # 🔧 Keychain password (stops UI prompts in logs)
-      KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PWD }}
 
       # CI hygiene
       CI: "true"
       FASTLANE_SKIP_CONFIRMATIONS: "1"
-      GIT_TERMINAL_PROMPT: "0"
-      FASTLANE_CI: "1"
       FASTLANE_DISABLE_COLORS: "1"
+      FASTLANE_CI: "1"
+      GIT_TERMINAL_PROMPT: "0"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java (for Flutter on iOS)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -55,9 +52,9 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.2'
+          ruby-version: "3.2"
 
-      - name: Bundle install (using ios/Gemfile)
+      - name: Bundle install (ios/Gemfile)
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
@@ -71,7 +68,7 @@ jobs:
           bundle exec pod repo update
           bundle exec pod install
 
-      - name: Build Basic auth (base64 only, force username)
+      - name: Build Basic auth (base64 header for match HTTPS)
         id: basicauth
         shell: bash
         run: |
@@ -79,18 +76,20 @@ jobs:
             echo "ERROR: MATCH_GIT_PAT is empty" >&2
             exit 1
           fi
-          user="x-access-token"
-          b64=$(printf "%s:%s" "$user" "$MATCH_GIT_PAT" | base64)
-          echo "b64=$b64" >> "$GITHUB_OUTPUT"
+          # Fastfile expects ONLY the base64 payload (no leading "Basic ")
+          printf "%s:%s" "x-access-token" "$MATCH_GIT_PAT" | base64 | {
+            read b64
+            echo "b64=$b64" >> "$GITHUB_OUTPUT"
+          }
 
-      - name: Build & upload to TestFlight
+      - name: Build & upload to TestFlight (Fastlane)
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
           MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.b64 }}
         run: bundle exec fastlane ios beta
 
-      - name: Archive artifacts (ipa, logs)
+      - name: Archive artifacts (ipa & logs)
         if: always()
         uses: actions/upload-artifact@v4
         with:
