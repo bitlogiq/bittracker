@@ -1,30 +1,14 @@
-# fastlane/Matchfile
-
-# Git repo for certs & provisioning profiles
 git_url("https://github.com/bitlogiq/ios-cert-store.git")
-
-# Default branch
 git_branch("main")
 
-# Type of profiles to use
 type("appstore")
 
-# Your app identifier(s)
 app_identifier(["za.co.bitlogiq.bittracker"])
-
-# Apple ID / Developer account email
 username("roelofhorowitz@hotmail.com")
-
-# Team ID from Apple Developer portal
 team_id("R4R4AW7JUQ")
 
-# Keychain settings (on CI this is ephemeral anyway)
 keychain_name("login.keychain")
-
-# On CI we pass authentication via MATCH_GIT_BASIC_AUTH_B64
-# Locally you can just use your ssh-agent or https PAT
 storage_mode("git")
 
-# IMPORTANT:
-# Locally → clone with your personal GitHub access (PAT or SSH key)
-# On CI  → workflow injects MATCH_GIT_BASIC_AUTH_B64 automatically
+# Locally: use your GitHub PAT or SSH key
+# CI: MATCH_GIT_BASIC_AUTH_B64 is injected automatically
