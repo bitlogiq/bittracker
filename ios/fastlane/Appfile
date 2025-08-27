@@ -1,3 +1,4 @@
-# Using ASC API key in Fastfile; keep Appfile minimal
-apple_id(ENV["APPLE_ID"])
-itc_team_id(ENV["TEAM_ID"])
+app_identifier "za.co.bitlogiq.bittracker"
+apple_id "roelofhorowitz@hotmail.com"
+itc_team_id nil
+team_id "R4R4AW7JUQ"
