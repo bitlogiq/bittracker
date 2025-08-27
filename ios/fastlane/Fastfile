@@ -1,44 +1,41 @@
 default_platform(:ios)
 
 platform :ios do
-  desc "Build and upload to TestFlight"
+  desc "Push a new beta build to TestFlight"
   lane :beta do
-    # Load App Store Connect API key
     app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
       key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
-      duration: 1200,
-      in_house: false
+      is_key_content_base64: true
     )
-
-    # Install certs & profiles via match
-    basicauth_b64 = ENV["MATCH_GIT_BASIC_AUTH_B64"].to_s.strip
-    UI.user_error!("MATCH_GIT_BASIC_AUTH_B64 is empty") if basicauth_b64.empty?
 
     match(
       type: "appstore",
       readonly: true,
-      git_basic_authorization: basicauth_b64,
+      git_url: ENV["MATCH_GIT_URL"],
+      git_branch: "main",
+      git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTH_B64"],
       keychain_name: "login.keychain-db",
       keychain_password: ENV["MATCH_PASSWORD"]
     )
 
-    # Archive with explicit identity + manual signing
+    # Build ipa with explicit team, manual signing, and app-store profile
     build_app(
       scheme: "Runner",
       export_method: "app-store",
-      xcargs: "DEVELOPMENT_TEAM=R4R4AW7JUQ CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution'",
+      xcargs: "DEVELOPMENT_TEAM=#{ENV["TEAM_ID"]} CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution'",
       export_options: {
         provisioningProfiles: {
-          "za.co.bitlogiq.bittracker" => "match AppStore za.co.bitlogiq.bittracker"
+          ENV["APP_IDENTIFIER"] => "match AppStore #{ENV["APP_IDENTIFIER"]}"
         },
-        signingStyle: "manual"
+        signingStyle: "manual",
+        signingCertificate: "Apple Distribution"
       }
     )
 
     upload_to_testflight(
-      skip_waiting_for_build_processing: false
+      skip_waiting_for_build_processing: true
     )
   end
 end
