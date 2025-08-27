@@ -1,4 +1,7 @@
 source "https://rubygems.org"
 
 gem "fastlane", "~> 2.228"
-gem "cocoapods", ">= 1.14" # let it float; your Podfile.lock will pin
+gem "cocoapods", ">= 1.13", "< 2.0"
+
+# Optional niceties; Fastlane will use xcbeautify if available
+gem "xcbeautify", ">= 2.0", "< 3.0"
