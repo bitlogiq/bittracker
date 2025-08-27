@@ -1,9 +1,4 @@
-# ios/Gemfile
-
 source "https://rubygems.org"
 
-# Fastlane for iOS builds
-gem "fastlane", "~> 2.228"
-
-# CocoaPods required by Flutter iOS builds
+gem "fastlane", "~> 2.228.0"
 gem "cocoapods", "1.15.2"
