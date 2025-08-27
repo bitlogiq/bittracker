@@ -9,6 +9,3 @@ team_id("R4R4AW7JUQ")
 
 keychain_name("login.keychain")
 storage_mode("git")
-
-# Locally: use your GitHub PAT or SSH key
-# CI: MATCH_GIT_BASIC_AUTH_B64 is injected automatically
