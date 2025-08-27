@@ -3,49 +3,49 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload to TestFlight"
   lane :beta do
-    # 1) App Store Connect API
+    UI.message(">>> app_store_connect_api_key")
     api_key = app_store_connect_api_key(
       key_id:      ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id:   ENV["APP_STORE_CONNECT_ISSUER_ID"],
-      key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"], # full PEM with BEGIN/END
+      key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
       is_key_content_base64: false,
       duration: 1200,
       in_house: false
     )
 
-    # 2) Match (HTTPS + PAT)
+    UI.message(">>> match (https + PAT)")
     basicauth_b64 = (ENV["MATCH_GIT_BASIC_AUTH_B64"] || "").sub(/^Basic\s+/i, "")
     UI.user_error!("MATCH_GIT_BASIC_AUTH_B64 is empty") if basicauth_b64.empty?
-
     match(
       type: "appstore",
       readonly: true,
       storage_mode: "git",
-      git_url: ENV["MATCH_GIT_URL"],            # https://github.com/bitlogiq/ios-cert-store.git
+      git_url: ENV["MATCH_GIT_URL"],
       git_branch: "main",
-      git_basic_authorization: basicauth_b64,   # base64 ONLY
+      git_basic_authorization: basicauth_b64,
       api_key: api_key,
       app_identifier: [ENV["APP_IDENTIFIER"]],
       team_id: ENV["TEAM_ID"],
       username: ENV["APPLE_ID"]
     )
 
-    # 3) Ensure project has your Team and Manual signing (applies directly to .xcodeproj)
+    UI.message(">>> update_project_team")
     update_project_team(
       path: "Runner.xcodeproj",
       teamid: ENV["TEAM_ID"]
     )
 
+    UI.message(">>> automatic_code_signing(false)")
     automatic_code_signing(
       path: "Runner.xcodeproj",
       use_automatic_signing: false,
       team_id: ENV["TEAM_ID"]
     )
 
-    # 4) Bump build number
+    UI.message(">>> increment_build_number")
     increment_build_number(xcodeproj: "Runner.xcodeproj")
 
-    # 5) Build with explicit overrides so Xcode can’t ignore settings
+    UI.message(">>> build_app with explicit signing overrides")
     bundle_id = ENV["APP_IDENTIFIER"]
     profile_name = "match AppStore #{bundle_id}"
 
@@ -54,7 +54,7 @@ platform :ios do
       workspace: "Runner.xcworkspace",
       export_method: "app-store",
 
-      # Strong overrides at build time (compile/archive)
+      # Force all signing knobs:
       xcargs: [
         "DEVELOPMENT_TEAM=#{ENV['TEAM_ID']}",
         "CODE_SIGN_STYLE=Manual",
@@ -63,17 +63,14 @@ platform :ios do
         "CODE_SIGN_IDENTITY=Apple Distribution"
       ].join(" "),
 
-      # Export options for packaging
       export_options: {
         signingStyle: "manual",
         teamID: ENV["TEAM_ID"],
-        provisioningProfiles: {
-          bundle_id => profile_name
-        }
+        provisioningProfiles: { bundle_id => profile_name }
       }
     )
 
-    # 6) Upload
+    UI.message(">>> upload_to_testflight")
     upload_to_testflight(
       api_key: api_key,
       skip_waiting_for_build_processing: true,
