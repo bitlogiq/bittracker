@@ -1,11 +1,12 @@
 git_url("https://github.com/bitlogiq/ios-cert-store.git")
 git_branch("main")
 
-type("appstore")
+storage_mode("git")
+type("appstore")  # 🔒 force App Store profiles only
 
 app_identifier(["za.co.bitlogiq.bittracker"])
 username("roelofhorowitz@hotmail.com")
 team_id("R4R4AW7JUQ")
 
-keychain_name("login.keychain")
-storage_mode("git")
+keychain_name("login.keychain-db")
+keychain_password(ENV["MATCH_KEYCHAIN_PASSWORD"])
