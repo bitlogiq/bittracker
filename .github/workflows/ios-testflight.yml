@@ -18,7 +18,7 @@ jobs:
       - name: Install Ruby gems
         working-directory: ios
         run: |
-          bundle config set path vendor/bundle
+          bundle config set path 'vendor/bundle'
           bundle install --jobs 4 --retry 3
 
       - name: Set up Flutter
@@ -30,8 +30,8 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build iOS IPA (no codesign)
-        run: flutter build ipa --release --no-codesign
+      - name: Build iOS artifacts (no codesign)
+        run: flutter build ios --release --no-codesign
 
       - name: Write ASC API key JSON
         working-directory: ios
@@ -51,7 +51,7 @@ jobs:
                    };
                    File.write("AuthKey.json", JSON.generate(data))'
 
-      - name: Fastlane beta
+      - name: Fastlane beta (build + upload)
         working-directory: ios
         run: bundle exec fastlane ios beta
         env:
@@ -64,7 +64,6 @@ jobs:
           MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
-          MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
           CI: true
           FASTLANE_SKIP_CONFIRMATIONS: 1
           FASTLANE_DISABLE_COLORS: 1
@@ -76,3 +75,4 @@ jobs:
           PUB_CACHE: /Users/runner/.pub-cache
           PATH: /Users/runner/.pub-cache/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin/cache/dart-sdk/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin:$PATH
           BUNDLE_GEMFILE: /Users/runner/work/bittracker/bittracker/ios/Gemfile
+          MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
