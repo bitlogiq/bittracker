@@ -18,7 +18,7 @@ jobs:
       - name: Install Ruby gems
         working-directory: ios
         run: |
-          bundle config set frozen false
+          bundle config set frozen true
           bundle install --jobs 4 --retry 3
 
       - name: Set up Flutter
@@ -30,8 +30,14 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build iOS dependencies
-        run: flutter build ios --release --no-codesign
+      - name: Build IPA
+        run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bittracker-IPA
+          path: build/ios/ipa/*.ipa
 
       - name: Write ASC API key JSON
         working-directory: ios
@@ -50,9 +56,6 @@ jobs:
                      "in_house"  => false
                    };
                    File.write("AuthKey.json", JSON.generate(data))'
-
-      - name: Build IPA
-        run: flutter build ipa --release --export-options-plist=$GITHUB_WORKSPACE/ios/ExportOptions.plist
 
       - name: Fastlane beta
         working-directory: ios
