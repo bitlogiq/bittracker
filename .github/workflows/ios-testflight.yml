@@ -2,12 +2,6 @@ name: iOS TestFlight
 
 on:
   workflow_dispatch:
-    inputs:
-      repair_signing:
-        description: "Run one-off repair to rotate Distribution cert/profile (match)"
-        default: "false"
-        type: choice
-        options: ["false", "true"]
 
 jobs:
   ios-testflight:
@@ -26,11 +20,8 @@ jobs:
 
       # match repo (HTTPS + PAT)
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_GIT_PAT:  ${{ secrets.MATCH_GIT_PAT }}
-
-      # toggle the one-off repair lane from the UI input
-      REPAIR_SIGNING: ${{ github.event.inputs.repair_signing }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }} # same password used when you ran `match init`
+      MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
 
       # CI hygiene
       CI: "true"
@@ -63,6 +54,11 @@ jobs:
         with:
           ruby-version: "3.2"
 
+      # 🔥 NEW: install xcbeautify via Homebrew before bundle install
+      - name: Install xcbeautify
+        run: |
+          brew install xcbeautify || brew upgrade xcbeautify || true
+
       - name: Bundle install (ios/Gemfile)
         working-directory: ios
         env:
@@ -91,19 +87,6 @@ jobs:
             echo "b64=$b64" >> "$GITHUB_OUTPUT"
           }
 
-      - name: Nuke DerivedData (clean slate)
-        run: rm -rf ~/Library/Developer/Xcode/DerivedData || true
-
-      # ----- One-off: rotate Distribution cert and profile in cert repo -----
-      - name: (One-off) Repair signing – rotate cert/profile with match
-        if: env.REPAIR_SIGNING == 'true'
-        working-directory: ios
-        env:
-          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
-          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.b64 }}
-        run: bundle exec fastlane ios repair_signing
-
-      # ----- Normal build & upload -----
       - name: Build & upload to TestFlight (Fastlane)
         working-directory: ios
         env:
