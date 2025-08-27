@@ -1,4 +1,4 @@
-source 'https://rubygems.org'
+source "https://rubygems.org"
 
-gem 'fastlane', '~> 2.222'
-gem 'cocoapods', '~> 1.15'
+gem "fastlane", "~> 2.228"
+gem "cocoapods", ">= 1.14" # let it float; your Podfile.lock will pin
