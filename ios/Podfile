@@ -1,4 +1,6 @@
 platform :ios, '13.0'
+
+# CocoaPods analytics can slow down source installs
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
 project 'Runner', {
@@ -7,40 +9,24 @@ project 'Runner', {
   'Release' => :release,
 }
 
-# --- Locate Flutter root ---
-def flutter_root
-  env_root = ENV['FLUTTER_ROOT']
-  return env_root.gsub('\\','/') if env_root && !env_root.empty?
+install! 'cocoapods', :deterministic_uuids => false
 
-  generated = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-  unless File.exist?(generated)
-    raise "Generated.xcconfig must exist. Run 'flutter pub get' first."
-  end
-
-  File.foreach(generated) do |line|
-    m = line.match(/FLUTTER_ROOT\=(.*)/)
-    return m[1].strip.gsub('\\','/') if m
-  end
-  raise "FLUTTER_ROOT not found in Generated.xcconfig."
-end
-
-# --- CocoaPods helper from Flutter ---
-require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
-
+# Flutter integration (generated defaults)
+require File.expand_path(File.join('..', 'Flutter', 'podhelper'), __FILE__)
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  use_frameworks!
+  use_frameworks! :linkage => :static
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+end
 
-  # --- Post-install: align iOS target versions ---
-  post_install do |installer|
-    installer.pods_project.targets.each do |t|
-      t.build_configurations.each do |bc|
-        bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-      end
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      # Ensure bitcode is off for modern Xcode (ok for iOS)
+      config.build_settings['ENABLE_BITCODE'] = 'NO'
     end
   end
 end
