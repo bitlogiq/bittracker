@@ -1,15 +1,12 @@
 git_url("https://github.com/bitlogiq/ios-cert-store.git")
 git_branch("main")
 
-storage_mode("git")
 type("appstore")
-readonly(true)
+storage_mode("git")
 
 app_identifier(["za.co.bitlogiq.bittracker"])
 username("roelofhorowitz@hotmail.com")
 team_id("R4R4AW7JUQ")
 
-# Note:
-# - We pass the Basic auth header at runtime from the Fastfile via:
-#   git_basic_authorization: "Basic #{ENV['MATCH_GIT_BASIC_AUTH_B64']}"
-#   (kept out of this file to avoid committing secrets)
+# On CI we pass Basic auth via env to fastlane 'match' directly
+readonly(true)
