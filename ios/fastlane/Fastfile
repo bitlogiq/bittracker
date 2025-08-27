@@ -1,39 +1,47 @@
 default_platform(:ios)
 
 platform :ios do
-  desc "Push a new beta build to TestFlight"
+  desc "Build and upload to TestFlight"
   lane :beta do
+    # Authenticate with App Store Connect
     app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
       key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
-      is_key_content_base64: true,
-      duration: 1200,
       in_house: false
     )
 
+    # Fetch certificates & profiles from your match repo
     match(
       type: "appstore",
-      readonly: true
+      readonly: false,
+      git_url: ENV["MATCH_GIT_URL"],
+      git_branch: "main",
+      username: ENV["APPLE_ID"],
+      team_id: ENV["TEAM_ID"],
+      storage_mode: "git",
+      keychain_name: "login.keychain-db",
+      keychain_password: ENV["MATCH_PASSWORD"],
+      api_key: ENV["APP_STORE_CONNECT_API_KEY"]
     )
 
+    # Build the app and allow auto provisioning updates
     build_app(
       scheme: "Runner",
       export_method: "app-store",
+      workspace: "./Runner.xcworkspace",
+      output_directory: "./build",
       output_name: "Runner.ipa",
-      include_bitcode: false,
-      clean: true,
-      silent: false,
-      skip_profile_detection: false,
-      allowProvisioningUpdates: true,
-      xcargs: "DEVELOPMENT_TEAM=#{ENV['APP_STORE_CONNECT_TEAM_ID']}",
+      xcargs: "DEVELOPMENT_TEAM=#{ENV['TEAM_ID']}",
       export_options: {
         provisioningProfiles: {
-          "za.co.bitlogiq.bittracker" => "match AppStore za.co.bitlogiq.bittracker"   # 👈 force profile match
+          ENV["APP_IDENTIFIER"] => "match AppStore #{ENV['APP_IDENTIFIER']}"
         }
-      }
+      },
+      allow_provisioning_updates: true # 👈 key fix
     )
 
+    # Upload to TestFlight
     upload_to_testflight(
       skip_waiting_for_build_processing: true
     )
