@@ -1,41 +1,30 @@
 platform :ios, '13.0'
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
-# Tell CocoaPods which project to integrate with
 project 'Runner', {
   'Debug' => :debug,
   'Profile' => :release,
   'Release' => :release,
 }
 
-# Find Flutter root from env
 flutter_root = ENV['FLUTTER_ROOT']
 if flutter_root.nil? || flutter_root.empty?
   raise 'Unable to locate FLUTTER_ROOT. Ensure Flutter is installed in the workflow and "flutter pub get" ran before pod install.'
 end
 
-# Prefer a local copy of podhelper if it exists, otherwise use the SDK one
-podhelper_local = File.expand_path(File.join('..', 'Flutter', 'podhelper'), __FILE__)
-podhelper_sdk   = File.expand_path(File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb'))
-require File.exist?(podhelper_local) ? podhelper_local : podhelper_sdk
+podhelper = File.expand_path(File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb'))
+require podhelper
 
 flutter_ios_podfile_setup
 
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
-
-  # Install all pods needed for Flutter and plugins
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
-
-    # Workaround for Xcodeproj UUID issues in CI
-    target.build_configurations.each do |config|
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
-    end
   end
 end
