@@ -27,14 +27,13 @@ jobs:
           channel: stable
           flutter-version: 3.35.1
 
-      - name: Install dependencies
-        run: flutter pub get
+      - name: Clean iOS project and regenerate Runner
+        run: |
+          rm -rf ios/Runner.xcodeproj ios/Runner.xcworkspace ios/Pods ios/Podfile.lock
+          flutter create .
+          flutter pub get
 
-      # 👇 NEW STEP: regenerate ios/Runner.xcodeproj if missing
-      - name: Regenerate iOS project
-        run: flutter create .
-
-      - name: Install CocoaPods
+      - name: Install iOS Pods
         working-directory: ios
         run: bundle exec pod install --repo-update
 
