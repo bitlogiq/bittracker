@@ -1,3 +1,4 @@
 apple_id("roelofhorowitz@hotmail.com")
+itc_team_id(nil) # optional
 team_id("R4R4AW7JUQ")
-itc_team_id(nil) # leave nil unless you specifically need to target a non-default App Store Connect team
+app_identifier("za.co.bitlogiq.bittracker")
