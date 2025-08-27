@@ -24,14 +24,22 @@ platform :ios do
       keychain_password: ENV["MATCH_PASSWORD"]
     )
 
-    # Archive with explicit team + provisioning profile mapping
+    # Archive with explicit team + provisioning profile mapping + manual signing
     build_app(
       scheme: "Runner",
       export_method: "app-store",
-      xcargs: "DEVELOPMENT_TEAM=R4R4AW7JUQ",
+      xcargs: "DEVELOPMENT_TEAM=R4R4AW7JUQ CODE_SIGN_STYLE=Manual",
       export_options: {
         provisioningProfiles: {
           "za.co.bitlogiq.bittracker" => "match AppStore za.co.bitlogiq.bittracker"
-        }
+        },
+        signingStyle: "manual"
       }
     )
+
+    # Upload to TestFlight
+    upload_to_testflight(
+      skip_waiting_for_build_processing: false
+    )
+  end
+end
