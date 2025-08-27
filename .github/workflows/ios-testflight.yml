@@ -13,15 +13,15 @@ jobs:
       APPLE_ID: roelofhorowitz@hotmail.com
       TEAM_ID: R4R4AW7JUQ
 
-      # App Store Connect API (secrets already in your repo)
+      # App Store Connect API (secrets)
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
 
-      # match via HTTPS + PAT (NO SSH)
+      # match via HTTPS + PAT
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}   # must match the cert repo’s encryption password
-      MATCH_GIT_PAT:  ${{ secrets.MATCH_GIT_PAT }}    # PAT with repo scope
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_PAT:  ${{ secrets.MATCH_GIT_PAT }}
 
       # CI hygiene
       CI: "true"
@@ -68,7 +68,6 @@ jobs:
           bundle exec pod repo update
           bundle exec pod install
 
-      # Build base64(username:token) ONLY, force username to 'x-access-token'
       - name: Build Basic auth (base64 only, force username)
         id: basicauth
         shell: bash
@@ -77,27 +76,15 @@ jobs:
             echo "ERROR: MATCH_GIT_PAT is empty" >&2
             exit 1
           fi
-          user="x-access-token"   # GitHub-accepted username for PAT auth
+          user="x-access-token"
           b64=$(printf "%s:%s" "$user" "$MATCH_GIT_PAT" | base64)
           echo "b64=$b64" >> "$GITHUB_OUTPUT"
-
-      # Optional sanity check
-      - name: Check header shape
-        shell: bash
-        env:
-          TOKEN_B64: ${{ steps.basicauth.outputs.b64 }}
-        run: |
-          case "$TOKEN_B64" in
-            eC1hY2Nlc3MtdG9rZW46*) echo "OK: username present (x-access-token)";;
-            Ok*) echo "ERROR: encodes ':<token>' (missing username)"; exit 1;;
-            *) echo "Header looks plausible";;
-          esac
 
       - name: Build & upload to TestFlight
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
-          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.b64 }}  # base64 only
+          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.b64 }}
         run: bundle exec fastlane ios beta
 
       - name: Archive artifacts (ipa, logs)
