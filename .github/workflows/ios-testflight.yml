@@ -20,7 +20,7 @@ jobs:
 
       # match repo (HTTPS + PAT)
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }} # same password used when you ran `match init`
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_PAT:  ${{ secrets.MATCH_GIT_PAT }}
 
       # CI hygiene
@@ -34,65 +34,59 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Java is needed for some Flutter tooling on iOS
       - name: Set up Java (for Flutter on iOS)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      # Install Flutter first so we can derive FLUTTER_ROOT
       - name: Set up Flutter (pinned)
         uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.35.1
           cache: true
 
-      # Derive and export FLUTTER_ROOT from the flutter binary (robust)
-      - name: Discover & export FLUTTER_ROOT
+      - name: Show Flutter info
+        run: |
+          flutter --version
+          which flutter
+          dart --version
+
+      # ✅ Make FLUTTER_ROOT available to *later* steps (Podfile depends on it)
+      - name: Export FLUTTER_ROOT for subsequent steps
         shell: bash
         run: |
           set -euo pipefail
-          FL_BIN="$(which flutter || true)"
-          if [ -z "${FL_BIN}" ]; then
-            echo "Flutter not on PATH"; exit 1
-          fi
-          FL_DIR="$(cd "$(dirname "${FL_BIN}")/.." && pwd)"
-          echo "Using FLUTTER_ROOT=${FL_DIR}"
-          echo "FLUTTER_ROOT=${FL_DIR}" >> "$GITHUB_ENV"
+          # Resolve SDK dir from flutter binary
+          FLROOT="$(dirname "$(dirname "$(which flutter)")")"
+          echo "FLUTTER_ROOT=$FLROOT" >> "$GITHUB_ENV"
+          echo "Exported FLUTTER_ROOT=$FLROOT"
 
-      # Pull Dart/Flutter deps (also helps generate ios/Flutter files)
-      - name: Flutter pub get
-        run: |
-          flutter --version
-          flutter pub get
-
-      # Ensure ios/Flutter/podhelper.rb exists; create a symlink to the SDK copy if missing
-      - name: Ensure podhelper.rb exists
+      # Helpful if your repo doesn’t include ios/Flutter/podhelper.rb
+      - name: Ensure ios/Flutter/podhelper.rb exists
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p ios/Flutter
+          SDK_PODHELPER="${FLUTTER_ROOT}/packages/flutter_tools/bin/podhelper.rb"
           if [ ! -f ios/Flutter/podhelper.rb ]; then
-            SDK_PODHELPER="${FLUTTER_ROOT}/packages/flutter_tools/bin/podhelper.rb"
-            if [ -f "${SDK_PODHELPER}" ]; then
-              ln -s "${SDK_PODHELPER}" ios/Flutter/podhelper.rb
-              echo "Linked ios/Flutter/podhelper.rb -> ${SDK_PODHELPER}"
+            if [ -f "$SDK_PODHELPER" ]; then
+              ln -s "$SDK_PODHELPER" ios/Flutter/podhelper.rb
+              echo "Linked ios/Flutter/podhelper.rb -> $SDK_PODHELPER"
             else
-              echo "ERROR: Could not find ${SDK_PODHELPER} to satisfy ios/Flutter/podhelper.rb"; exit 1
+              echo "ERROR: Could not find $SDK_PODHELPER" >&2
+              exit 1
             fi
           fi
           ls -l ios/Flutter/podhelper.rb
+
+      - name: Flutter pub get (project root)
+        run: flutter pub get
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
-
-      # Make sure xcbeautify exists even if the pinned version is unavailable
-      - name: Ensure xcbeautify is installed
-        run: |
-          gem install xcbeautify -N -v 2.30.1 || gem install xcbeautify -N || true
 
       - name: Bundle install (ios/Gemfile)
         working-directory: ios
@@ -100,31 +94,33 @@ jobs:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
         run: bundle install --jobs 4 --retry 3
 
-      # CocoaPods AFTER Flutter env & podhelper.rb are guaranteed
-      - name: Pod install (via Bundler)
+      - name: CocoaPods (update + install via Bundler)
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
         run: |
+          # Sanity: FLUTTER_ROOT must be set before Podfile is parsed
+          echo "FLUTTER_ROOT=$FLUTTER_ROOT"
           bundle exec pod repo update
           bundle exec pod install
 
-      - name: Clean DerivedData (avoid stale caches)
-        run: rm -rf ~/Library/Developer/Xcode/DerivedData || true
-
-      # Build Basic auth payload for match (HTTPS + PAT)
       - name: Build Basic auth (base64 header for match HTTPS)
         id: basicauth
         shell: bash
         run: |
+          set -euo pipefail
           if [ -z "${MATCH_GIT_PAT:-}" ]; then
             echo "ERROR: MATCH_GIT_PAT is empty" >&2
             exit 1
           fi
+          # Fastfile expects ONLY the base64 payload (no leading "Basic ")
           printf "%s:%s" "x-access-token" "$MATCH_GIT_PAT" | base64 | {
             read b64
             echo "b64=$b64" >> "$GITHUB_OUTPUT"
           }
+
+      - name: Clean DerivedData (optional but helps flaky caches)
+        run: rm -rf ~/Library/Developer/Xcode/DerivedData || true
 
       - name: Build & upload to TestFlight (Fastlane)
         working-directory: ios
