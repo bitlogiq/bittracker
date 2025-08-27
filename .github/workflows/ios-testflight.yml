@@ -20,9 +20,8 @@ jobs:
 
       # match via HTTPS + PAT (NO SSH)
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_GIT_PAT:  ${{ secrets.MATCH_GIT_PAT }}             # PAT with repo scope
-      # MATCH_GIT_USERNAME not required; we force x-access-token below
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}   # must match the cert repo’s encryption password
+      MATCH_GIT_PAT:  ${{ secrets.MATCH_GIT_PAT }}    # PAT with repo scope
 
       # CI hygiene
       CI: "true"
@@ -69,7 +68,7 @@ jobs:
           bundle exec pod repo update
           bundle exec pod install
 
-      # 🔐 Build base64(username:token) ONLY, force username to 'x-access-token'
+      # Build base64(username:token) ONLY, force username to 'x-access-token'
       - name: Build Basic auth (base64 only, force username)
         id: basicauth
         shell: bash
@@ -90,7 +89,7 @@ jobs:
         run: |
           case "$TOKEN_B64" in
             eC1hY2Nlc3MtdG9rZW46*) echo "OK: username present (x-access-token)";;
-            Ok*) echo "ERROR: header encodes ':<token>' (missing username)"; exit 1;;
+            Ok*) echo "ERROR: encodes ':<token>' (missing username)"; exit 1;;
             *) echo "Header looks plausible";;
           esac
 
