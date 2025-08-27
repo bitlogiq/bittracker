@@ -27,14 +27,19 @@ jobs:
           channel: stable
           flutter-version: 3.35.1
 
-      - name: Install Flutter dependencies
+      - name: Install dependencies
         run: flutter pub get
 
-      # 👇 Run pod install only AFTER flutter pub get
+      # 👇 NEW STEP: regenerate ios/Runner.xcodeproj if missing
+      - name: Regenerate iOS project
+        run: flutter create .
+
       - name: Install CocoaPods
         working-directory: ios
-        run: |
-          bundle exec pod install --repo-update
+        run: bundle exec pod install --repo-update
+
+      - name: Build iOS dependencies
+        run: flutter build ios --release --no-codesign
 
       - name: Write ASC API key JSON
         working-directory: ios
