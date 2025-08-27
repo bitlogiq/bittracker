@@ -1,8 +1,11 @@
+# ios/Gemfile
 source "https://rubygems.org"
 
-gem "fastlane", "~> 2.228"
-gem "cocoapods", "~> 1.15"
-gem "xcbeautify", "~> 2.30"
+# Pin fastlane and cocoapods to sane ranges used by CI image
+gem "fastlane", ">= 2.228.0", "< 3.0.0"
+gem "cocoapods", ">= 1.15.2", "< 2.0.0"
 
-# Keep system Ruby clean:
-gem "bundler", ">= 2.4"
+# NOTE:
+# - DO NOT add `gem "xcbeautify"` here. xcbeautify is installed via Homebrew.
+# - If you ever want a Ruby-based formatter fallback, you could use:
+#   gem "xcpretty"
