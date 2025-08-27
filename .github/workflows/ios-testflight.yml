@@ -70,7 +70,7 @@ jobs:
           bundle exec pod repo update
           bundle exec pod install
 
-      - name: Build Basic auth (base64 header for match HTTPS)
+      - name: Build Basic auth (base64 only, no "Basic " prefix)
         id: basicauth
         shell: bash
         run: |
@@ -78,15 +78,15 @@ jobs:
             echo "ERROR: MATCH_GIT_PAT is empty" >&2
             exit 1
           fi
-          # Base64 encode username:token and prepend "Basic "
+          # Base64 encode username:token only
           b64=$(printf "%s:%s" "x-access-token" "$MATCH_GIT_PAT" | base64)
-          echo "header=Basic $b64" >> "$GITHUB_OUTPUT"
+          echo "b64=$b64" >> "$GITHUB_OUTPUT"
 
       - name: Build & upload to TestFlight (Fastlane)
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
-          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.header }}
+          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.b64 }}
         run: bundle exec fastlane ios beta
 
       - name: Archive artifacts (ipa & logs)
