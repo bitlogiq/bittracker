@@ -1,11 +1,11 @@
 git_url("https://github.com/bitlogiq/ios-cert-store.git")
 git_branch("main")
 
-type("appstore") # we’re targeting TestFlight/App Store
+type("appstore")
 app_identifier(["za.co.bitlogiq.bittracker"])
 
 username("roelofhorowitz@hotmail.com")
 team_id("R4R4AW7JUQ")
 
 keychain_name("login.keychain-db")
-keychain_password(ENV["KEYCHAIN_PASSWORD"]) # 🔐 pulls from GitHub Secret
+keychain_password(ENV["KEYCHAIN_PASSWORD"])
