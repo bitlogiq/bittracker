@@ -2,6 +2,12 @@ name: iOS TestFlight
 
 on:
   workflow_dispatch:
+    inputs:
+      repair_signing:
+        description: "Run one-off repair to rotate Distribution cert/profile (match)"
+        default: "false"
+        type: choice
+        options: ["false", "true"]
 
 jobs:
   ios-testflight:
@@ -22,8 +28,9 @@ jobs:
       MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_PAT:  ${{ secrets.MATCH_GIT_PAT }}
-      MATCH_READONLY: "true"
-      MATCH_SKIP_DOCS: "true"
+
+      # toggle the one-off repair lane from the UI input
+      REPAIR_SIGNING: ${{ github.event.inputs.repair_signing }}
 
       # CI hygiene
       CI: "true"
@@ -31,10 +38,6 @@ jobs:
       FASTLANE_DISABLE_COLORS: "1"
       FASTLANE_CI: "1"
       GIT_TERMINAL_PROMPT: "0"
-
-      # Prevent stray xcodebuild args from being injected
-      GYM_XCARGS: ""
-      FASTLANE_XCARGS: ""
 
     steps:
       - name: Checkout
@@ -74,14 +77,6 @@ jobs:
           bundle exec pod repo update
           bundle exec pod install
 
-      # Fix for: 'fatal: a branch named "main" already exists'
-      # Wipes any cached local clones that match might reuse between runs.
-      - name: Clean cached fastlane/match clones
-        run: |
-          rm -rf ~/.fastlane || true
-          rm -rf ~/Library/Preferences/fastlane || true
-          rm -rf "$RUNNER_TEMP/match" || true
-
       - name: Build Basic auth (base64 header for match HTTPS)
         id: basicauth
         shell: bash
@@ -90,11 +85,25 @@ jobs:
             echo "ERROR: MATCH_GIT_PAT is empty" >&2
             exit 1
           fi
+          # Fastfile expects ONLY the base64 payload (no leading "Basic ")
           printf "%s:%s" "x-access-token" "$MATCH_GIT_PAT" | base64 | {
             read b64
             echo "b64=$b64" >> "$GITHUB_OUTPUT"
           }
 
+      - name: Nuke DerivedData (clean slate)
+        run: rm -rf ~/Library/Developer/Xcode/DerivedData || true
+
+      # ----- One-off: rotate Distribution cert and profile in cert repo -----
+      - name: (One-off) Repair signing – rotate cert/profile with match
+        if: env.REPAIR_SIGNING == 'true'
+        working-directory: ios
+        env:
+          BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
+          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.b64 }}
+        run: bundle exec fastlane ios repair_signing
+
+      # ----- Normal build & upload -----
       - name: Build & upload to TestFlight (Fastlane)
         working-directory: ios
         env:
