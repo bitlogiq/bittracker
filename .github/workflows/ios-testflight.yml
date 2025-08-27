@@ -30,6 +30,11 @@ jobs:
       FASTLANE_CI: "1"
       GIT_TERMINAL_PROMPT: "0"
 
+      # IMPORTANT: ensure nothing injects extra xcodebuild args
+      # (prevents 'Unknown build action AppStore' caused by unquoted profile names)
+      GYM_XCARGS: ""
+      FASTLANE_XCARGS: ""
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,6 +86,10 @@ jobs:
             read b64
             echo "b64=$b64" >> "$GITHUB_OUTPUT"
           }
+
+      # (Optional safety) Clear DerivedData between tries to avoid residue
+      - name: Clean Xcode DerivedData (optional)
+        run: rm -rf ~/Library/Developer/Xcode/DerivedData || true
 
       - name: Build & upload to TestFlight (Fastlane)
         working-directory: ios
