@@ -78,17 +78,15 @@ jobs:
             echo "ERROR: MATCH_GIT_PAT is empty" >&2
             exit 1
           fi
-          # Export ONLY the base64 payload (no "Basic " prefix)
-          printf "%s:%s" "x-access-token" "$MATCH_GIT_PAT" | base64 | {
-            read b64
-            echo "b64=$b64" >> "$GITHUB_OUTPUT"
-          }
+          # Base64 encode username:token and prepend "Basic "
+          b64=$(printf "%s:%s" "x-access-token" "$MATCH_GIT_PAT" | base64)
+          echo "header=Basic $b64" >> "$GITHUB_OUTPUT"
 
       - name: Build & upload to TestFlight (Fastlane)
         working-directory: ios
         env:
           BUNDLE_GEMFILE: ${{ github.workspace }}/ios/Gemfile
-          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.b64 }}
+          MATCH_GIT_BASIC_AUTH_B64: ${{ steps.basicauth.outputs.header }}
         run: bundle exec fastlane ios beta
 
       - name: Archive artifacts (ipa & logs)
