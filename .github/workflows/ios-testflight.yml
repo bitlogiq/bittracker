@@ -1,38 +1,49 @@
-default_platform(:ios)
+name: iOS TestFlight
 
-platform :ios do
-  desc "Build and upload to TestFlight"
-  lane :beta do
-    # ✅ Authenticate with App Store Connect using API key
-    app_store_connect_api_key(
-      key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
-      issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
-      key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
-      is_key_content_base64: false
-    )
+on:
+  workflow_dispatch: # run manually
+  push:
+    branches:
+      - main
 
-    # ✅ Pull signing certs and profiles from match repo
-    match(
-      type: "appstore",
-      readonly: false,
-      app_identifier: ["za.co.bitlogiq.bittracker"],
-      git_url: ENV["MATCH_GIT_URL"],
-      username: ENV["APPLE_ID"]
-    )
+jobs:
+  build-and-deploy:
+    runs-on: macos-latest
 
-    # ✅ Build with explicit provisioning + allow updates
-    build_app(
-      scheme: "Runner",
-      export_method: "app-store",
-      export_options: {
-        provisioningProfiles: {
-          "za.co.bitlogiq.bittracker" => "match AppStore za.co.bitlogiq.bittracker"
-        }
-      },
-      xcargs: "DEVELOPMENT_TEAM=#{ENV["TEAM_ID"]} -allowProvisioningUpdates"
-    )
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-    # ✅ Upload to TestFlight
-    upload_to_testflight
-  end
-end
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install fastlane
+        run: gem install fastlane
+
+      # 🔑 Sync signing for Development + App Store
+      - name: Match Development
+        run: bundle exec fastlane match development --readonly false --force_for_new_devices
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+
+      - name: Match App Store
+        run: bundle exec fastlane match appstore --readonly false
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+
+      # 🔨 Build IPA and upload to TestFlight
+      - name: Build and Upload to TestFlight
+        run: bundle exec fastlane ios beta
+        env:
+          APP_IDENTIFIER: za.co.bitlogiq.bittracker
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
