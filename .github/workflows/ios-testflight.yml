@@ -1,4 +1,4 @@
-name: iOS Unsigned Build
+name: iOS TestFlight
 
 on:
   workflow_dispatch:
@@ -11,6 +11,17 @@ jobs:
       - name: Checkout app
         uses: actions/checkout@v4
 
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install Ruby gems
+        working-directory: ios
+        run: |
+          bundle config set path vendor/bundle
+          bundle install --jobs 4 --retry 3
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -20,22 +31,21 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # 🔨 Build iOS app (unsigned)
-      - name: Build iOS (no codesign)
-        run: flutter build ios --release --no-codesign
-
-      # 📦 Archive with Xcode (no signing, just package)
-      - name: Archive Runner
+      # 🚀 Force archive for generic iOS device (no signing)
+      - name: Build iOS Archive
         run: |
           xcodebuild archive \
             -workspace ios/Runner.xcworkspace \
             -scheme Runner \
             -sdk iphoneos \
             -configuration Release \
+            -destination 'generic/platform=iOS' \
             -archivePath build/Runner.xcarchive \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
 
-      # 🗂️ Package into IPA (unsigned)
+      # 📦 Export unsigned IPA
       - name: Export IPA
         run: |
           mkdir -p build/ios/ipa
@@ -43,11 +53,13 @@ jobs:
             -archivePath build/Runner.xcarchive \
             -exportOptionsPlist ios/ExportOptions.plist \
             -exportPath build/ios/ipa \
-            CODE_SIGNING_ALLOWED=NO || true
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
 
-      # ⬆️ Upload artifacts for download
-      - name: Upload Unsigned IPA
+      # ⬆️ Upload IPA artifact
+      - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BitTracker-iOS-Unsigned
+          name: BitTracker-iOS
           path: build/ios/ipa/*.ipa
