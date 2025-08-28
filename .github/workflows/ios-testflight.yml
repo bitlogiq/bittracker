@@ -18,7 +18,7 @@ jobs:
       - name: Install Ruby gems
         working-directory: ios
         run: |
-          bundle config set --local path vendor/bundle
+          bundle config set path 'vendor/bundle'
           bundle install --jobs 4 --retry 3
 
       - name: Set up Flutter
@@ -30,28 +30,51 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build Flutter (no iOS archive yet)
-        run: flutter build ios --release --no-codesign
-
-      - name: Write ASC API key JSON
-        working-directory: ios
-        shell: bash
-        env:
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      # ------------------------------
+      # Step A: Flutter IPA build
+      # ------------------------------
+      - name: Build IPA (Flutter)
         run: |
-          ruby -e 'require "json";
-                   data = {
-                     "key_id"    => ENV["ASC_KEY_ID"],
-                     "issuer_id" => ENV["ASC_ISSUER_ID"],
-                     "key"       => ENV["ASC_PRIVATE_KEY"],
-                     "duration"  => 1200,
-                     "in_house"  => false
-                   };
-                   File.write("AuthKey.json", JSON.generate(data))'
+          set -e
+          if [ ! -f ios/ExportOptions.plist ]; then
+            echo "ExportOptions.plist missing!"
+            exit 1
+          fi
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist --no-codesign
+        continue-on-error: true
 
-      - name: Deploy with Fastlane (build + upload to TestFlight)
+      # ------------------------------
+      # Step B: Fallback with xcodebuild
+      # ------------------------------
+      - name: Fallback - Build IPA with xcodebuild
+        if: failure()
+        run: |
+          mkdir -p build/ios/archive
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            archive -archivePath build/ios/archive/Runner.xcarchive \
+            CODE_SIGNING_ALLOWED=NO
+
+          xcodebuild -exportArchive \
+            -archivePath build/ios/archive/Runner.xcarchive \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath build/ios/ipa
+
+      # ------------------------------
+      # Step C: Save IPA as artifact
+      # ------------------------------
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BitTracker-iOS
+          path: build/ios/ipa/*.ipa
+
+      # ------------------------------
+      # Step D: Upload to TestFlight
+      # ------------------------------
+      - name: Fastlane beta
         working-directory: ios
         run: bundle exec fastlane ios beta
         env:
@@ -70,7 +93,3 @@ jobs:
           FASTLANE_DISABLE_COLORS: 1
           FASTLANE_CI: 1
           GIT_TERMINAL_PROMPT: 0
-          JAVA_HOME: /Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home
-          FLUTTER_ROOT: /Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64
-          PUB_CACHE: /Users/runner/.pub-cache
-          BUNDLE_GEMFILE: /Users/runner/work/bittracker/bittracker/ios/Gemfile
