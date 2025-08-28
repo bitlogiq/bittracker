@@ -18,7 +18,7 @@ jobs:
       - name: Install Ruby gems
         working-directory: ios
         run: |
-          bundle config set path vendor/bundle
+          bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
       - name: Set up Flutter
@@ -30,49 +30,47 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build iOS app (no codesign)
+      - name: Build Flutter (no iOS archive yet)
         run: flutter build ios --release --no-codesign
 
-      - name: Ensure ExportOptions.plist
+      - name: Write ASC API key JSON
+        working-directory: ios
+        shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
-          if [ ! -f ios/ExportOptions.plist ]; then
-            echo '<?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0">
-            <dict>
-              <key>method</key>
-              <string>app-store</string>
-              <key>uploadBitcode</key>
-              <false/>
-              <key>compileBitcode</key>
-              <true/>
-              <key>signingStyle</key>
-              <string>manual</string>
-              <key>stripSwiftSymbols</key>
-              <true/>
-              <key>teamID</key>
-              <string>R4R4AW7JUQ</string>
-            </dict>
-            </plist>' > ios/ExportOptions.plist
-          fi
+          ruby -e 'require "json";
+                   data = {
+                     "key_id"    => ENV["ASC_KEY_ID"],
+                     "issuer_id" => ENV["ASC_ISSUER_ID"],
+                     "key"       => ENV["ASC_PRIVATE_KEY"],
+                     "duration"  => 1200,
+                     "in_house"  => false
+                   };
+                   File.write("AuthKey.json", JSON.generate(data))'
 
-      - name: Fastlane beta
+      - name: Deploy with Fastlane (build + upload to TestFlight)
         working-directory: ios
         run: bundle exec fastlane ios beta
         env:
           APP_IDENTIFIER: za.co.bitlogiq.bittracker
           APPLE_ID: roelofhorowitz@hotmail.com
           TEAM_ID: R4R4AW7JUQ
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-          MATCH_GIT_URL: https://x-access-token:${{ secrets.MATCH_GIT_PAT }}@github.com/bitlogiq/ios-cert-store.git
+          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
           MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
           CI: true
           FASTLANE_SKIP_CONFIRMATIONS: 1
           FASTLANE_DISABLE_COLORS: 1
           FASTLANE_CI: 1
           GIT_TERMINAL_PROMPT: 0
+          JAVA_HOME: /Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home
+          FLUTTER_ROOT: /Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64
+          PUB_CACHE: /Users/runner/.pub-cache
           BUNDLE_GEMFILE: /Users/runner/work/bittracker/bittracker/ios/Gemfile
