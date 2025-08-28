@@ -1,32 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- Distribution method -->
   <key>method</key>
   <string>app-store</string>
 
-  <!-- Team ID from Apple Developer account -->
-  <key>teamID</key>
-  <string>R4R4AW7JUQ</string>
-
-  <!-- Ensure profiles/certs come from Match -->
   <key>signingStyle</key>
   <string>manual</string>
 
-  <!-- Bitcode is deprecated, but still required to specify -->
-  <key>uploadBitcode</key>
-  <false/>
-  <key>compileBitcode</key>
-  <true/>
-
-  <!-- Strip Swift symbols for App Store builds -->
   <key>stripSwiftSymbols</key>
   <true/>
 
-  <!-- Enable uploading to App Store Connect/TestFlight -->
-  <key>uploadSymbols</key>
+  <key>uploadBitcode</key>
+  <false/>
+
+  <key>compileBitcode</key>
   <true/>
+
+  <key>teamID</key>
+  <string>R4R4AW7JUQ</string>
+
+  <key>destination</key>
+  <string>export</string>
 </dict>
 </plist>
