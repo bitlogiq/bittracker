@@ -1,7 +1,8 @@
-git_url("https://github.com/bitlogiq/ios-cert-store.git")
+git_url("https://x-access-token:${MATCH_GIT_PAT}@github.com/bitlogiq/ios-cert-store.git")
 git_branch("main")
 
 type("appstore")
+
 app_identifier(["za.co.bitlogiq.bittracker"])
 username("roelofhorowitz@hotmail.com")
 team_id("R4R4AW7JUQ")
