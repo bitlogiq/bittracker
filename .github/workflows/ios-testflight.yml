@@ -18,7 +18,7 @@ jobs:
       - name: Install Ruby gems
         working-directory: ios
         run: |
-          bundle config set path 'vendor/bundle'
+          bundle config set frozen false
           bundle install --jobs 4 --retry 3
 
       - name: Set up Flutter
@@ -30,66 +30,61 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # ------------------------------
-      # Step A: Flutter IPA build
-      # ------------------------------
+      # Try Flutter IPA build first
       - name: Build IPA (Flutter)
         run: |
-          set -e
-          if [ ! -f ios/ExportOptions.plist ]; then
-            echo "ExportOptions.plist missing!"
-            exit 1
-          fi
-          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist --no-codesign
-        continue-on-error: true
+          flutter build ipa --release \
+            --export-options-plist=ios/ExportOptions.plist \
+            --no-codesign || echo "Flutter IPA failed, will try Xcode build..."
 
-      # ------------------------------
-      # Step B: Fallback with xcodebuild
-      # ------------------------------
-      - name: Fallback - Build IPA with xcodebuild
+      # Fallback: Xcode archive/export if Flutter fails
+      - name: Build IPA (Xcode fallback)
         if: failure()
         run: |
-          mkdir -p build/ios/archive
-          xcodebuild -workspace ios/Runner.xcworkspace \
+          xcodebuild archive \
+            -workspace ios/Runner.xcworkspace \
             -scheme Runner \
-            -sdk iphoneos \
+            -configuration Release \
             -destination 'generic/platform=iOS' \
-            archive -archivePath build/ios/archive/Runner.xcarchive \
+            -archivePath build/Runner.xcarchive \
             CODE_SIGNING_ALLOWED=NO
 
           xcodebuild -exportArchive \
-            -archivePath build/ios/archive/Runner.xcarchive \
+            -archivePath build/Runner.xcarchive \
             -exportOptionsPlist ios/ExportOptions.plist \
-            -exportPath build/ios/ipa
+            -exportPath build/ios
 
-      # ------------------------------
-      # Step C: Save IPA as artifact
-      # ------------------------------
-      - name: Upload IPA Artifact
+      # Always save artifacts, even if fastlane fails
+      - name: Upload IPA artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BitTracker-iOS
-          path: build/ios/ipa/*.ipa
+          name: BitTracker-ipa
+          path: build/ios/**/*.ipa
 
-      # ------------------------------
-      # Step D: Upload to TestFlight
-      # ------------------------------
       - name: Fastlane beta
+        if: success() # Only run upload if build succeeded
         working-directory: ios
         run: bundle exec fastlane ios beta
         env:
           APP_IDENTIFIER: za.co.bitlogiq.bittracker
           APPLE_ID: roelofhorowitz@hotmail.com
           TEAM_ID: R4R4AW7JUQ
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
           MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
           MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
           CI: true
           FASTLANE_SKIP_CONFIRMATIONS: 1
           FASTLANE_DISABLE_COLORS: 1
           FASTLANE_CI: 1
           GIT_TERMINAL_PROMPT: 0
+          JAVA_HOME: /Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home
+          JAVA_HOME_17_ARM64: /Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home
+          FLUTTER_ROOT: /Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64
+          PUB_CACHE: /Users/runner/.pub-cache
+          PATH: /Users/runner/.pub-cache/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin:/usr/bin:/bin:/usr/sbin:/sbin
+          BUNDLE_GEMFILE: /Users/runner/work/bittracker/bittracker/ios/Gemfile
