@@ -18,7 +18,7 @@ jobs:
       - name: Install Ruby gems
         working-directory: ios
         run: |
-          bundle config set frozen false
+          bundle config set path vendor/bundle
           bundle install --jobs 4 --retry 3
 
       - name: Set up Flutter
@@ -30,16 +30,33 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # 🔑 Ensure ExportOptions.plist is available
-      - name: Verify ExportOptions.plist
+      - name: Build iOS app (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Ensure ExportOptions.plist
         run: |
           if [ ! -f ios/ExportOptions.plist ]; then
-            echo "ExportOptions.plist missing!"
-            exit 1
+            echo '<?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>uploadBitcode</key>
+              <false/>
+              <key>compileBitcode</key>
+              <true/>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>stripSwiftSymbols</key>
+              <true/>
+              <key>teamID</key>
+              <string>R4R4AW7JUQ</string>
+            </dict>
+            </plist>' > ios/ExportOptions.plist
           fi
 
-      # 🚀 Build + sign + upload via Fastlane
-      - name: Build and upload to TestFlight
+      - name: Fastlane beta
         working-directory: ios
         run: bundle exec fastlane ios beta
         env:
@@ -49,7 +66,7 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-          MATCH_GIT_URL: https://github.com/bitlogiq/ios-cert-store.git
+          MATCH_GIT_URL: https://x-access-token:${{ secrets.MATCH_GIT_PAT }}@github.com/bitlogiq/ios-cert-store.git
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
           MATCH_GIT_BASIC_AUTH_B64: ${{ secrets.MATCH_GIT_BASIC_AUTH_B64 }}
@@ -58,9 +75,4 @@ jobs:
           FASTLANE_DISABLE_COLORS: 1
           FASTLANE_CI: 1
           GIT_TERMINAL_PROMPT: 0
-          JAVA_HOME: /Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home
-          JAVA_HOME_17_ARM64: /Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home
-          FLUTTER_ROOT: /Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64
-          PUB_CACHE: /Users/runner/.pub-cache
-          PATH: /Users/runner/.pub-cache/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin/cache/dart-sdk/bin:/Users/runner/hostedtoolcache/flutter/stable-3.35.1-arm64/bin:/Users/runner/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/arm64/Contents/Home/bin:/Users/runner/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/runner/.cargo/bin:/usr/local/opt/curl/bin:/usr/local/bin:/usr/local/sbin:/Users/runner/bin:/Users/runner/.yarn/bin:/Users/runner/Library/Android/sdk/tools:/Users/runner/Library/Android/sdk/platform-tools:/Library/Frameworks/Python.framework/Versions/Current/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/usr/bin:/bin:/usr/sbin:/sbin:/Users/runner/.dotnet/tools
           BUNDLE_GEMFILE: /Users/runner/work/bittracker/bittracker/ios/Gemfile
