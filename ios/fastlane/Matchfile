@@ -1,22 +1,10 @@
-# fastlane/Matchfile
-
 git_url("https://github.com/bitlogiq/ios-cert-store.git")
 git_branch("main")
 
-# App identifiers (can be one or multiple)
+type("appstore")
 app_identifier(["za.co.bitlogiq.bittracker"])
-
-# Apple Developer Team ID
+username("roelofhorowitz@hotmail.com")
 team_id("R4R4AW7JUQ")
 
-# Apple ID (the account that owns the certificates)
-username("roelofhorowitz@hotmail.com")
-
-# Match will use API key (set in Fastfile) and GitHub Actions secrets
-storage_mode("git")
-
-# Use login.keychain-db on the GitHub runner
 keychain_name("login.keychain-db")
-
-# Profiles for distribution
-type("appstore")
+keychain_password(ENV["MATCH_PASSWORD"])
